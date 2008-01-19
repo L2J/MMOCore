@@ -15,38 +15,31 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package com.l2jserver.mmocore.network;
-
-import java.nio.ByteBuffer;
-
+package org.mmocore.network;
 
 /**
  * @author KenM
  *
  */
-public abstract class AbstractPacket<T extends MMOClient>
+public abstract class HeaderHandler<T extends MMOClient, H extends HeaderHandler<T,H>>
 {
-    protected ByteBuffer _buf;
+    private final H _subHeaderHandler;
     
-    protected T _client;
-    
-    protected void setClient(T client)
+    public HeaderHandler(H subHeaderHandler)
     {
-        _client = client;
+        _subHeaderHandler = subHeaderHandler;
+    }
+
+    /**
+     * @return the subHeaderHandler
+     */
+    public final H getSubHeaderHandler()
+    {
+        return _subHeaderHandler;
     }
     
-    public T getClient()
+    public final boolean isChildHeaderHandler()
     {
-        return _client;
-    }
-    
-    protected void setByteBuffer(ByteBuffer buf)
-    {
-        _buf = buf;
-    }
-    
-    protected ByteBuffer getByteBuffer()
-    {
-        return _buf;
+        return this.getSubHeaderHandler() == null;
     }
 }
