@@ -15,7 +15,7 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package com.l2jserver.mmocore.network;
+package org.mmocore.network;
 
 import java.nio.ByteBuffer;
 
