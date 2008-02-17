@@ -84,7 +84,7 @@ public abstract class ReceivablePacket<T extends MMOClient> extends AbstractPack
         {
             tb.append(ch);
         }
-        String str = tb.stringValue();
+        String str = tb.toString();
         TextBuilder.recycle(tb);
         return str;
     }

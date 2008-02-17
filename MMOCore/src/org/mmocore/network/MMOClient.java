@@ -58,7 +58,7 @@ public abstract class MMOClient<T extends MMOConnection>
     
     public abstract boolean encrypt(ByteBuffer buf, int size);
     
-    protected void onDisconection()
+    protected void onDisconnection()
     {
     }
     
