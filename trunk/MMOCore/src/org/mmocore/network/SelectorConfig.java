@@ -25,8 +25,13 @@ import java.nio.ByteOrder;
  */
 public class SelectorConfig<T extends MMOClient>
 {
+    // UDP
     private final UDPHeaderHandler<T> UDP_HEADER_HANDLER;
+    private final IPacketHandler<T> UDP_PACKET_HANDLER;
+    
+    // TCP
     private final TCPHeaderHandler<T> TCP_HEADER_HANDLER;
+    private final IPacketHandler<T> TCP_PACKET_HANDLER;
     
     private int READ_BUFFER_SIZE = 64*1024;
     private int WRITE_BUFFER_SIZE = 64*1024;
@@ -50,10 +55,13 @@ public class SelectorConfig<T extends MMOClient>
         INT_HEADER,
     }
     
-    public SelectorConfig(UDPHeaderHandler<T> udpHeaderHandler, TCPHeaderHandler<T> tcpHeaderHandler)
+    public SelectorConfig(UDPHeaderHandler<T> udpHeaderHandler, IPacketHandler<T> udpPacketHandler, TCPHeaderHandler<T> tcpHeaderHandler, IPacketHandler<T> tcpPacketHandler)
     {
         UDP_HEADER_HANDLER = udpHeaderHandler;
+        UDP_PACKET_HANDLER = udpPacketHandler;
+        
         TCP_HEADER_HANDLER = tcpHeaderHandler;
+        TCP_PACKET_HANDLER = tcpPacketHandler;
     }
     
     public int getReadBufferSize()
@@ -91,9 +99,19 @@ public class SelectorConfig<T extends MMOClient>
         return UDP_HEADER_HANDLER;
     }
     
+    public IPacketHandler<T> getUDPPacketHandler()
+    {
+        return UDP_PACKET_HANDLER;
+    }
+    
     public TCPHeaderHandler<T> getTCPHeaderHandler()
     {
         return TCP_HEADER_HANDLER;
+    }
+    
+    public IPacketHandler<T> getTCPPacketHandler()
+    {
+        return TCP_PACKET_HANDLER;
     }
 
     /**

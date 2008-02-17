@@ -23,7 +23,7 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.WritableByteChannel;
 
-import org.mmocore.util.collections.concurrent.SemiConcurrentLinkedList;
+import javolution.util.FastList;
 
 
 /**
@@ -39,7 +39,7 @@ public class MMOConnection<T extends MMOClient>
     private WritableByteChannel _writableByteChannel;
     private ReadableByteChannel _readableByteChannel;
     
-    private SemiConcurrentLinkedList<SendablePacket<T>> _sendQueue = new SemiConcurrentLinkedList<SendablePacket<T>>();
+    private FastList<SendablePacket<T>> _sendQueue = new FastList<SendablePacket<T>>();
     private SelectionKey _selectionKey;
     
     private int _readHeaderPending;
@@ -194,7 +194,7 @@ public class MMOConnection<T extends MMOClient>
         return _readableByteChannel;
     }
     
-    protected SemiConcurrentLinkedList<SendablePacket<T>> getSendQueue()
+    protected FastList<SendablePacket<T>> getSendQueue()
     {
         return _sendQueue;
     }
@@ -395,31 +395,42 @@ public class MMOConnection<T extends MMOClient>
     {
         synchronized (this.getSendQueue())
         {
-            _pendingClose = true;
-            this.getSendQueue().clear();
-            this.disableWriteInterest();
+            if (!this.isClosed())
+            {
+                _pendingClose = true;
+                this.getSendQueue().clear();
+                this.disableWriteInterest();
+                this.getSelectorThread().closeConnection(this);
+            }
         }
-        this.getSelectorThread().closeConnection(this);
+        
     }
     
     public void close(SendablePacket<T> sp)
     {
         synchronized (this.getSendQueue())
         {
-            this.getSendQueue().clear();
-            this.sendPacket(sp);
-            _pendingClose = true;
+            if (!this.isClosed())
+            {
+                this.getSendQueue().clear();
+                this.sendPacket(sp);
+                _pendingClose = true;
+                this.getSelectorThread().closeConnection(this);
+            }
         }
-        this.getSelectorThread().closeConnection(this);
     }
     
     protected void closeLater()
     {
         synchronized (this.getSendQueue())
         {
-            _pendingClose = true;
+            if (!this.isClosed())
+            {
+                _pendingClose = true;
+                this.getSelectorThread().closeConnection(this);
+            }
         }
-        this.getSelectorThread().closeConnection(this);
+        
     }
     
     protected void releaseBuffers()
@@ -441,9 +452,9 @@ public class MMOConnection<T extends MMOClient>
         }
     }
     
-    protected void onDisconection()
+    protected void onDisconnection()
     {
-        this.getClient().onDisconection();
+        this.getClient().onDisconnection();
     }
     
     protected void onForcedDisconnection()

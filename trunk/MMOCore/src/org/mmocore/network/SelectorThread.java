@@ -35,11 +35,8 @@ import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.Set;
 
-import org.mmocore.util.collections.concurrent.SemiConcurrentLinkedList;
-
-
-
 import javolution.util.FastList;
+import javolution.util.FastList.Node;
 
 /**
  * @author KenM<BR>
@@ -79,7 +76,7 @@ public class SelectorThread<T extends MMOClient> extends Thread
     // ByteBuffers General Purpose Pool
     private final FastList<ByteBuffer> _bufferPool = new FastList<ByteBuffer>();
 
-    public SelectorThread(SelectorConfig<T> sc, IPacketHandler<T> udpPacketHandler, IPacketHandler<T> packetHandler, IMMOExecutor<T> executor, IClientFactory<T> clientFactory, IAcceptFilter acceptFilter) throws IOException
+    public SelectorThread(SelectorConfig<T> sc, IMMOExecutor<T> executor, IClientFactory<T> clientFactory, IAcceptFilter acceptFilter) throws IOException
     {
         HELPER_BUFFER_SIZE = sc.getHelperBufferSize();
         HELPER_BUFFER_COUNT = sc.getHelperBufferCount();
@@ -95,8 +92,8 @@ public class SelectorThread<T extends MMOClient> extends Thread
         _tcpHeaderHandler = sc.getTCPHeaderHandler();
         this.initBufferPool();
         _acceptFilter = acceptFilter;
-        _packetHandler = packetHandler;
-        _udpPacketHandler = udpPacketHandler;
+        _packetHandler = sc.getTCPPacketHandler();
+        _udpPacketHandler = sc.getUDPPacketHandler();
         _clientFactory = clientFactory;
         this.setExecutor(executor);
         this.initializeSelector();
@@ -256,15 +253,18 @@ public class SelectorThread<T extends MMOClient> extends Thread
             }
             
             // process pending close
-            for (n = this.getPendingClose().head(), end = this.getPendingClose().tail(); (n = n.getNext()) != end;)
+            synchronized (this.getPendingClose())
             {
-                con = n.getValue();
-                if (con.getSendQueue().isEmpty())
+                for (n = this.getPendingClose().head(), end = this.getPendingClose().tail(); (n = n.getNext()) != end;)
                 {
-                    temp = n.getPrevious();
-                    this.getPendingClose().delete(n);
-                    n = temp;
-                    this.closeConnectionImpl(con);
+                    con = n.getValue();
+                    if (con.getSendQueue().isEmpty())
+                    {
+                        temp = n.getPrevious();
+                        this.getPendingClose().delete(n);
+                        n = temp;
+                        this.closeConnectionImpl(con);
+                    }
                 }
             }
             
@@ -355,12 +355,6 @@ public class SelectorThread<T extends MMOClient> extends Thread
         {
             buf = READ_BUFFER;
         }
-        else
-        {
-            //buf.limit(buf.capacity());
-            //buf.position()
-            //System.out.println("TEM BUF PENDENTE LIMIT: "+buf.limit());
-        }
         int result = -2;
         
         // if we try to to do a read with no space in the buffer it will read 0 bytes
@@ -368,8 +362,8 @@ public class SelectorThread<T extends MMOClient> extends Thread
         if (buf.position() == buf.limit())
         {
             // should never happen
-            System.out.println("POS ANTES SC.READ(): "+buf.position()+" limit: "+buf.limit());
-            System.out.println("NOOBISH ERROR "+( buf == READ_BUFFER ? "READ_BUFFER" : "temp"));
+            System.err.println("POS ANTES SC.READ(): "+buf.position()+" limit: "+buf.limit());
+            System.err.println("NOOBISH ERROR "+( buf == READ_BUFFER ? "READ_BUFFER" : "temp"));
             System.exit(0);
         }
         
@@ -393,6 +387,13 @@ public class SelectorThread<T extends MMOClient> extends Thread
                 buf.flip();
                 // try to read as many packets as possible
                 while (this.tryReadPacket2(key, client, buf));
+            }
+            else
+            {
+                if (buf == READ_BUFFER)
+                {
+                    READ_BUFFER.clear();
+                }
             }
         }
         else if (result == 0)
@@ -1026,38 +1027,41 @@ public class SelectorThread<T extends MMOClient> extends Thread
             
             int i = 0;
 
-            SemiConcurrentLinkedList<SendablePacket<T>> sendQueue = con.getSendQueue();
-            SemiConcurrentLinkedList<SendablePacket<T>>.Node<SendablePacket<T>> n, temp, end;
+            FastList<SendablePacket<T>> sendQueue = con.getSendQueue();
+            Node<SendablePacket<T>> n, temp, end;
             SendablePacket<T> sp;
 
-            for (n = sendQueue.getStart(), end = sendQueue.getEnd(); (n = n.getNext()) != end && i++ < MAX_SEND_PER_PASS;)
+            synchronized (sendQueue)
             {
-                sp = n.getValue();
-                // put into WriteBuffer
-                this.putPacketIntoWriteBuffer(con.getClient(), sp);
-
-                // delete packet from queue
-                temp = n.getPrevious();
-                sendQueue.remove(n);
-                n = temp;
-
-                WRITE_BUFFER.flip();
-                //System.err.println("WB SIZE: "+WRITE_BUFFER.limit());
-                if (DIRECT_WRITE_BUFFER.remaining() >= WRITE_BUFFER.limit())
+                for (n = sendQueue.head(), end = sendQueue.tail(); (n = n.getNext()) != end && i++ < MAX_SEND_PER_PASS;)
                 {
-                    /*if (i == 0)
+                    sp = n.getValue();
+                    // put into WriteBuffer
+                    this.putPacketIntoWriteBuffer(con.getClient(), sp);
+
+                    // delete packet from queue
+                    temp = n.getPrevious();
+                    sendQueue.delete(n);
+                    n = temp;
+
+                    WRITE_BUFFER.flip();
+                    //System.err.println("WB SIZE: "+WRITE_BUFFER.limit());
+                    if (DIRECT_WRITE_BUFFER.remaining() >= WRITE_BUFFER.limit())
                     {
-                        // mark begining of new data from previous pending data
-                        con.setWriterMark(DIRECT_WRITE_BUFFER.position());
-                    }*/
-                    DIRECT_WRITE_BUFFER.put(WRITE_BUFFER);
-                }
-                else
-                {
-                    // there is no more space in the direct buffer
-                    //con.addWriteBuffer(this.getPooledBuffer().put(WRITE_BUFFER));
-                    con.createWriteBuffer(WRITE_BUFFER);
-                    break;
+                        /*if (i == 0)
+                        {
+                            // mark begining of new data from previous pending data
+                            con.setWriterMark(DIRECT_WRITE_BUFFER.position());
+                        }*/
+                        DIRECT_WRITE_BUFFER.put(WRITE_BUFFER);
+                    }
+                    else
+                    {
+                        // there is no more space in the direct buffer
+                        //con.addWriteBuffer(this.getPooledBuffer().put(WRITE_BUFFER));
+                        con.createWriteBuffer(WRITE_BUFFER);
+                        break;
+                    }
                 }
             }
         }
@@ -1181,7 +1185,7 @@ public class SelectorThread<T extends MMOClient> extends Thread
         try
         {
             // notify connection
-            con.onDisconection();
+            con.onDisconnection();
         }
         finally
         {

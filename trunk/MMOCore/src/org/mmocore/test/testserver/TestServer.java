@@ -25,9 +25,9 @@ public class TestServer
         }
         
         SelectorHelper sh = new SelectorHelper();
-        SelectorConfig<ServerClient> ssc = new SelectorConfig<ServerClient>(null, sh);
+        SelectorConfig<ServerClient> ssc = new SelectorConfig<ServerClient>(null, null, sh, sh);
         ssc.setMaxSendPerPass(2);
-        SelectorThread<ServerClient> selector = new SelectorThread<ServerClient>(ssc, null, sh, sh, sh, null);
+        SelectorThread<ServerClient> selector = new SelectorThread<ServerClient>(ssc, sh, sh, null);
         selector.openServerSocket(null, PORT);
         //selector.openDatagramSocket();
         selector.start();

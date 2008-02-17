@@ -56,6 +56,12 @@
 				<include name="*.jar"/>
 			</fileset>
 		</copy>
+		
+		<copy todir="${build.dist}">
+			<fileset dir="${build}">
+				<include name="*.jar"/>
+			</fileset>
+		</copy>
 	</target>
 	
 	<target name="dist"
