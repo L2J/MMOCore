@@ -71,7 +71,7 @@ public class SelectorConfig<T extends MMOClient>
     
     public int getWriteBufferSize()
     {
-        return READ_BUFFER_SIZE;
+        return WRITE_BUFFER_SIZE;
     }
     
     public int getHelperBufferSize()
