@@ -798,7 +798,7 @@ public class SelectorThread<T extends MMOClient> extends Thread
         
         boolean ret = client.decrypt(buf, dataSize);
         
-        buf.position(pos);
+        //buf.position(pos); //can be annoying for some decrypt impl decrypt should place the pos at the right place itself 
         
         //System.out.println("pCP -> BUF: POS: "+buf.position()+" - LIMIT: "+buf.limit()+" == Packet: SIZE: "+dataSize);
         
