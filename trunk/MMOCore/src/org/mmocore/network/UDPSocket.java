@@ -68,4 +68,12 @@ public class UDPSocket implements ISocket
         return _socket.getInetAddress();
     }
     
+    /* (non-Javadoc)
+     * @see org.mmocore.network.ISocket#getPort()
+     */
+    public int getPort()
+    {
+        return _socket.getPort();
+    }
+    
 }

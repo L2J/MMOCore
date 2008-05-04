@@ -784,7 +784,7 @@ public class SelectorThread<T extends MMOClient> extends Thread
         }
     }
 
-    protected void allocateReadBuffer(MMOConnection con)
+    protected void allocateReadBuffer(MMOConnection<T> con)
     {
         //System.out.println("con: "+Integer.toHexString(con.hashCode()));
         //Util.printHexDump(READ_BUFFER);
