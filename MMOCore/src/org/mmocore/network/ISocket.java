@@ -35,4 +35,6 @@ public interface ISocket
     public ReadableByteChannel getReadableByteChannel();
     
     public InetAddress getInetAddress();
+    
+    public int getPort();
 }
