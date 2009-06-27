@@ -17,75 +17,68 @@
  */
 package org.mmocore.network;
 
-
-import javolution.text.TextBuilder;
-
 /**
  * @author KenM
  *
  */
-public abstract class ReceivablePacket<T extends MMOClient> extends AbstractPacket<T> implements Runnable
+public abstract class ReceivablePacket<T extends MMOClient<?>> extends AbstractPacket<T> implements Runnable
 {
+	NioNetStringBuffer _sbuf;
+	
     protected ReceivablePacket()
     {
         
-    }
-    
-    protected int getAvaliableBytes()
-    {
-        return this.getByteBuffer().remaining();
     }
     
     protected abstract boolean read();
     
     public abstract void run();
     
-    protected void readB(byte[] dst)
+    protected final void readB(final byte[] dst)
     {
-        this.getByteBuffer().get(dst);
+        _buf.get(dst);
     }
     
-    protected void readB(byte[] dst, int offset, int len)
+    protected final void readB(final byte[] dst, final int offset, final int len)
     {
-        this.getByteBuffer().get(dst, offset, len);
+    	_buf.get(dst, offset, len);
     }
     
-    protected int readC()
+    protected final int readC()
     {
-        return this.getByteBuffer().get() & 0xFF;
+        return _buf.get() & 0xFF;
     }
     
-    protected int readH()
+    protected final int readH()
     {
-        return this.getByteBuffer().getShort() & 0xFFFF;
+        return _buf.getShort() & 0xFFFF;
     }
     
-    protected int readD()
+    protected final int readD()
     {
-        return this.getByteBuffer().getInt();
+        return _buf.getInt();
     }
     
-    protected long readQ()
+    protected final long readQ()
     {
-        return this.getByteBuffer().getLong();
+        return _buf.getLong();
     }
     
-    protected double readF()
+    protected final double readF()
     {
-        return this.getByteBuffer().getDouble();
+        return _buf.getDouble();
     }
     
-    protected String readS()
+    protected final String readS()
     {
-        TextBuilder tb = TextBuilder.newInstance();
+    	_sbuf.clear();
+    	
         char ch;
-        
-        while ((ch = this.getByteBuffer().getChar()) != 0)
+        while ((ch = _buf.getChar()) != 0)
         {
-            tb.append(ch);
+        	_sbuf.append(ch);
         }
-        String str = tb.toString();
-        TextBuilder.recycle(tb);
-        return str;
+        
+        return _sbuf.toString();
     }
 }

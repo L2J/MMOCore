@@ -17,213 +17,137 @@
  */
 package org.mmocore.network;
 
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.WritableByteChannel;
 
-import javolution.util.FastList;
-
-
 /**
  * @author KenM
  *
  */
-public class MMOConnection<T extends MMOClient>
+public final class MMOConnection<T extends MMOClient<?>>
 {
     private final SelectorThread<T> _selectorThread;
-    private T _client;
     
-    private ISocket _socket;
-    private WritableByteChannel _writableByteChannel;
-    private ReadableByteChannel _readableByteChannel;
+    private final Socket _socket;
+    private final InetAddress _address;
+    private final ReadableByteChannel _readableByteChannel;
+    private final WritableByteChannel _writableByteChannel;
+    private final int _port;
     
-    private FastList<SendablePacket<T>> _sendQueue = new FastList<SendablePacket<T>>();
-    private SelectionKey _selectionKey;
+    private final NioNetStackList<SendablePacket<T>> _sendQueue;
+    private final SelectionKey _selectionKey;
+    private SendablePacket<T> _closePacket;
     
-    private int _readHeaderPending;
     private ByteBuffer _readBuffer;
-    
     private ByteBuffer _primaryWriteBuffer;
     private ByteBuffer _secondaryWriteBuffer;
-    
     private boolean _pendingClose;
+    private T _client;
     
-    public MMOConnection(SelectorThread<T> selectorThread, ISocket socket, SelectionKey key)
+	public MMOConnection(final SelectorThread<T> selectorThread, final Socket socket, final SelectionKey key)
     {
         _selectorThread = selectorThread;
-        this.setSocket(socket);
-        this.setWritableByteChannel(socket.getWritableByteChannel());
-        this.setReadableByteChannel(socket.getReadableByteChannel());
-        this.setSelectionKey(key);
+        _socket = socket;
+        _address = socket.getInetAddress();
+        _readableByteChannel = socket.getChannel();
+        _writableByteChannel = socket.getChannel();
+        _port = socket.getPort();
+        _selectionKey = key;
+        
+        _sendQueue = new NioNetStackList<SendablePacket<T>>();
     }
     
-    public MMOConnection(T client, SelectorThread<T> selectorThread, ISocket socket, SelectionKey key)
+    final void setClient(final T client)
     {
-        this(selectorThread, socket, key);
-        this.setClient(client);
+    	_client = client;
     }
     
-    protected void setClient(T client)
-    {
-        _client = client;
-    }
-    
-    public T getClient()
+    public final T getClient()
     {
         return _client;
     }
     
-    public void sendPacket(SendablePacket<T> sp)
+    public final void sendPacket(final SendablePacket<T> sp)
     {
-        sp.setClient(this.getClient());
-        synchronized (this.getSendQueue())
+        sp._client = _client;
+        
+        synchronized (getSendQueue())
+    	{
+    		if (!_pendingClose)
+    		{
+    			_sendQueue.addLast(sp);
+    		}
+    	}
+        
+        if (!_sendQueue.isEmpty())
         {
-            if (!_pendingClose)
+        	try
             {
-                try
-                {
-                    this.getSelectionKey().interestOps(this.getSelectionKey().interestOps() | SelectionKey.OP_WRITE);
-                    this.getSendQueue().addLast(sp);
-                }
-                catch (CancelledKeyException e)
-                {
-                    // ignore
-                }
+            	_selectionKey.interestOps(_selectionKey.interestOps() | SelectionKey.OP_WRITE);
+            }
+            catch (CancelledKeyException e)
+            {
+                // ignore
             }
         }
     }
     
-    protected SelectorThread<T> getSelectorThread()
-    {
-        return _selectorThread;
-    }
-    
-    protected void setSelectionKey(SelectionKey key)
-    {
-        _selectionKey = key;
-    }
-    
-    protected SelectionKey getSelectionKey()
+    final SelectionKey getSelectionKey()
     {
         return _selectionKey;
     }
     
-    protected void enableReadInterest()
+    public final InetAddress getInetAddress()
     {
-        try
-        {
-            this.getSelectionKey().interestOps(this.getSelectionKey().interestOps() | SelectionKey.OP_READ);
-        }
-        catch (CancelledKeyException e)
-        {
-            // ignore
-        }
+    	return _address;
     }
     
-    protected void disableReadInterest()
+    public final int getPort()
     {
-        try
-        {
-            this.getSelectionKey().interestOps(this.getSelectionKey().interestOps() & ~SelectionKey.OP_READ);
-        }
-        catch (CancelledKeyException e)
-        {
-            // ignore
-        }
+    	return _port;
     }
     
-    protected void enableWriteInterest()
+    final void close() throws IOException
     {
-        try
-        {
-            this.getSelectionKey().interestOps(this.getSelectionKey().interestOps() | SelectionKey.OP_WRITE);
-        }
-        catch (CancelledKeyException e)
-        {
-            // ignore
-        }
+    	_socket.close();
     }
     
-    protected void disableWriteInterest()
+    final int read(final ByteBuffer buf) throws IOException
     {
-        try
-        {
-            this.getSelectionKey().interestOps(this.getSelectionKey().interestOps() & ~SelectionKey.OP_WRITE);
-        }
-        catch (CancelledKeyException e)
-        {
-            // ignore
-        }
+    	return _readableByteChannel.read(buf);
     }
     
-    /**
-     * @param socket the socket to set
-     */
-    protected void setSocket(ISocket socket)
+    final int write(final ByteBuffer buf) throws IOException
     {
-        _socket = socket;
-    }
-
-    /**
-     * @return the socket
-     */
-    public ISocket getSocket()
-    {
-        return _socket;
-    }
-
-    protected void setWritableByteChannel(WritableByteChannel wbc)
-    {
-        _writableByteChannel = wbc;
+    	return _writableByteChannel.write(buf);
     }
     
-    public WritableByteChannel getWritableChannel()
-    {
-        return _writableByteChannel;
-    }
-    
-    protected void setReadableByteChannel(ReadableByteChannel rbc)
-    {
-        _readableByteChannel = rbc;
-    }
-    
-    public ReadableByteChannel getReadableByteChannel()
-    {
-        return _readableByteChannel;
-    }
-    
-    protected FastList<SendablePacket<T>> getSendQueue()
-    {
-        return _sendQueue;
-    }
-    
-    protected void createWriteBuffer(ByteBuffer buf)
+    final void createWriteBuffer(final ByteBuffer buf)
     {
         if (_primaryWriteBuffer == null)
         {
-            //System.err.println("APPENDING FOR NULL");
-            //System.err.flush();
-            _primaryWriteBuffer = this.getSelectorThread().getPooledBuffer();
+            _primaryWriteBuffer = _selectorThread.getPooledBuffer();
             _primaryWriteBuffer.put(buf);
         }
         else
         {
-            //System.err.println("PREPENDING ON EXISTING");
-            //System.err.flush();
-            
-            ByteBuffer temp = this.getSelectorThread().getPooledBuffer();
+            final ByteBuffer temp = _selectorThread.getPooledBuffer();
             temp.put(buf);
             
-            int remaining = temp.remaining();
+            final int remaining = temp.remaining();
             _primaryWriteBuffer.flip();
-            int limit = _primaryWriteBuffer.limit();
+            final int limit = _primaryWriteBuffer.limit();
             
             if (remaining >= _primaryWriteBuffer.remaining())
             {
                 temp.put(_primaryWriteBuffer);
-                this.getSelectorThread().recycleBuffer(_primaryWriteBuffer);
+                _selectorThread.recycleBuffer(_primaryWriteBuffer);
                 _primaryWriteBuffer = temp;
             }
             else
@@ -238,227 +162,86 @@ public class MMOConnection<T extends MMOClient>
         }
     }
     
-    /*
-    protected void appendIntoWriteBuffer(ByteBuffer buf)
-    {
-        // if we already have a buffer
-        if (_secondaryWriteBuffer != null && (_primaryWriteBuffer != null && !_primaryWriteBuffer.hasRemaining()))
-        {
-            _secondaryWriteBuffer.put(buf);
-            
-            if (MMOCore.ASSERTIONS_ENABLED)
-            {
-                // correct state
-                assert _primaryWriteBuffer == null || !_primaryWriteBuffer.hasRemaining();
-                // full write
-                assert !buf.hasRemaining();
-            }
-        }
-        else if (_primaryWriteBuffer != null)
-        {
-            int size = Math.min(buf.limit(), _primaryWriteBuffer.remaining());
-            _primaryWriteBuffer.put(buf.array(), buf.position(), size);
-            buf.position(buf.position() + size);
-            
-            // primary wasnt enough
-            if (buf.hasRemaining())
-            {
-                _secondaryWriteBuffer = this.getSelectorThread().getPooledBuffer();
-                _secondaryWriteBuffer.put(buf);
-            }
-            
-            if (MMOCore.ASSERTIONS_ENABLED)
-            {
-                // full write
-                assert !buf.hasRemaining();
-            }
-        }
-        else
-        {
-            // a single empty buffer should be always enough by design
-            _primaryWriteBuffer = this.getSelectorThread().getPooledBuffer();
-            _primaryWriteBuffer.put(buf);
-            System.err.println("ESCREVI "+_primaryWriteBuffer.position());
-            if (MMOCore.ASSERTIONS_ENABLED)
-            {
-                // full write
-                assert !buf.hasRemaining();
-            }
-        }
-    }*/
-    
-    /*protected void prependIntoPendingWriteBuffer(ByteBuffer buf)
-    {
-        int remaining = buf.remaining();
-        
-        //do we already have some buffer
-        if (_primaryWriteBuffer != null && _primaryWriteBuffer.hasRemaining())
-        {
-            if (remaining == _primaryWriteBuffer.capacity())
-            {
-                if (MMOCore.ASSERTIONS_ENABLED)
-                {
-                    assert _secondaryWriteBuffer == null;
-                }
-                
-                _secondaryWriteBuffer = _primaryWriteBuffer;
-                _primaryWriteBuffer = this.getSelectorThread().getPooledBuffer();
-                _primaryWriteBuffer.put(buf);
-            }
-            else if (remaining < _primaryWriteBuffer.remaining())
-            {
-                
-            }
-        }
-        else
-        {
-            
-        }
-    }*/
-    
-    protected boolean hasPendingWriteBuffer()
+    final boolean hasPendingWriteBuffer()
     {
         return _primaryWriteBuffer != null;
     }
     
-    protected void movePendingWriteBufferTo(ByteBuffer dest)
+    final void movePendingWriteBufferTo(final ByteBuffer dest)
     {
-        //System.err.println("PRI SIZE: "+_primaryWriteBuffer.position());
-        //System.err.flush();
         _primaryWriteBuffer.flip();
         dest.put(_primaryWriteBuffer);
-        this.getSelectorThread().recycleBuffer(_primaryWriteBuffer);
+        _selectorThread.recycleBuffer(_primaryWriteBuffer);
         _primaryWriteBuffer = _secondaryWriteBuffer;
         _secondaryWriteBuffer = null;
     }
     
-    /*protected void finishPrepending(int written)
-    {
-        _primaryWriteBuffer.position(Math.min(written, _primaryWriteBuffer.limit()));
-        // discard only the written bytes
-        _primaryWriteBuffer.compact();
-        
-        if (_secondaryWriteBuffer != null)
-        {
-            _secondaryWriteBuffer.flip();
-            _primaryWriteBuffer.put(_secondaryWriteBuffer);
-            
-            if (!_secondaryWriteBuffer.hasRemaining())
-            {
-                this.getSelectorThread().recycleBuffer(_secondaryWriteBuffer);
-                _secondaryWriteBuffer = null;
-            }
-            else
-            {
-                _secondaryWriteBuffer.compact();
-            }
-        }
-    }*/
-    
-    protected ByteBuffer getWriteBuffer()
-    {
-        ByteBuffer ret = _primaryWriteBuffer;
-        if (_secondaryWriteBuffer != null)
-        {
-            _primaryWriteBuffer = _secondaryWriteBuffer;
-            _secondaryWriteBuffer = null;
-        }
-        return ret;
-    }
-
-    protected void setPendingHeader(int size)
-    {
-        _readHeaderPending = size;
-    }
-    
-    protected int getPendingHeader()
-    {
-        return _readHeaderPending;
-    }
-    
-    protected void setReadBuffer(ByteBuffer buf)
+    final void setReadBuffer(final ByteBuffer buf)
     {
         _readBuffer = buf;
     }
     
-    protected ByteBuffer getReadBuffer()
+    final ByteBuffer getReadBuffer()
     {
         return _readBuffer;
     }
     
-    public boolean isClosed()
+    public final boolean isClosed()
     {
         return _pendingClose;
     }
     
-    protected void closeNow()
+    final NioNetStackList<SendablePacket<T>> getSendQueue()
     {
-        synchronized (this.getSendQueue())
+    	return _sendQueue;
+    }
+    
+    final SendablePacket<T> getClosePacket()
+    {
+    	return _closePacket;
+    }
+    
+    public final void close(final SendablePacket<T> sp)
+    {
+    	synchronized (getSendQueue())
+    	{
+    		if (!_pendingClose)
+    			_pendingClose = true;
+    		
+    		_sendQueue.clear();
+    	}
+    	
+    	try
         {
-            if (!this.isClosed())
-            {
-                _pendingClose = true;
-                this.getSendQueue().clear();
-                this.disableWriteInterest();
-                this.getSelectorThread().closeConnection(this);
-            }
+			_selectionKey.interestOps(_selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
+        }
+        catch (CancelledKeyException e)
+        {
+            // ignore
         }
         
+        _closePacket = sp;
+    	_selectorThread.closeConnection(this);
     }
     
-    public void close(SendablePacket<T> sp)
-    {
-        synchronized (this.getSendQueue())
-        {
-            if (!this.isClosed())
-            {
-                this.getSendQueue().clear();
-                this.sendPacket(sp);
-                _pendingClose = true;
-                this.getSelectorThread().closeConnection(this);
-            }
-        }
-    }
-    
-    protected void closeLater()
-    {
-        synchronized (this.getSendQueue())
-        {
-            if (!this.isClosed())
-            {
-                _pendingClose = true;
-                this.getSelectorThread().closeConnection(this);
-            }
-        }
-        
-    }
-    
-    protected void releaseBuffers()
+    final void releaseBuffers()
     {
         if (_primaryWriteBuffer != null)
         {
-            this.getSelectorThread().recycleBuffer(_primaryWriteBuffer);
+        	_selectorThread.recycleBuffer(_primaryWriteBuffer);
             _primaryWriteBuffer = null;
+            
             if (_secondaryWriteBuffer != null)
             {
-                this.getSelectorThread().recycleBuffer(_secondaryWriteBuffer);
+            	_selectorThread.recycleBuffer(_secondaryWriteBuffer);
                 _secondaryWriteBuffer = null;
             }
         }
+        
         if (_readBuffer != null)
         {
-            this.getSelectorThread().recycleBuffer(_readBuffer);
+        	_selectorThread.recycleBuffer(_readBuffer);
             _readBuffer = null;
         }
-    }
-    
-    protected void onDisconnection()
-    {
-        this.getClient().onDisconnection();
-    }
-    
-    protected void onForcedDisconnection()
-    {
-        this.getClient().onForcedDisconnection();
     }
 }

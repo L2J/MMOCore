@@ -21,76 +21,66 @@ package org.mmocore.network;
  * @author KenM
  *
  */
-public abstract class SendablePacket<T extends MMOClient> extends AbstractPacket<T>
+public abstract class SendablePacket<T extends MMOClient<?>> extends AbstractPacket<T>
 {
-    protected void putShort(int value)
+    protected final void putInt(final int value)
     {
-        this.getByteBuffer().putShort((short) value);
+    	_buf.putInt(value);
     }
     
-    protected void putInt(int value)
+    protected final void putDouble(final double value)
     {
-        this.getByteBuffer().putInt(value);
+    	_buf.putDouble(value);
     }
     
-    protected void putDouble(double value)
+    protected final void putFloat(final float value)
     {
-        this.getByteBuffer().putDouble(value);
+    	_buf.putFloat(value);
     }
     
-    protected void putFloat(float value)
+    protected final void writeC(final int data)
     {
-        this.getByteBuffer().putFloat(value);
+    	_buf.put((byte)data);
     }
     
-    protected void writeC(int data)
+    protected final void writeF(final double value)
     {
-        this.getByteBuffer().put((byte) data);
+    	_buf.putDouble(value);
     }
     
-    protected void writeF(double value)
+    protected final void writeH(final int value)
     {
-        this.getByteBuffer().putDouble(value);
+    	_buf.putShort((short)value);
     }
     
-    protected void writeH(int value)
+    protected final void writeD(final int value)
     {
-        this.getByteBuffer().putShort((short) value);
+    	_buf.putInt(value);
     }
     
-    protected void writeD(int value)
+    protected final void writeQ(final long value)
     {
-        this.getByteBuffer().putInt(value);
+    	_buf.putLong(value);
     }
     
-    protected void writeQ(long value)
+    protected final void writeB(final byte[] data)
     {
-        this.getByteBuffer().putLong(value);
+    	_buf.put(data);
     }
     
-    protected void writeB(byte[] data)
+    protected final void writeS(final String text)
     {
-        this.getByteBuffer().put(data);
-    }
-    
-    protected void writeS(CharSequence charSequence)
-    {
-        if (charSequence == null)
-        {
-            charSequence = "";
-        }
-        
-        int length = charSequence.length();
-        for (int i = 0; i < length; i++)
-        {
-            this.getByteBuffer().putChar(charSequence.charAt(i));
-        }
-        this.getByteBuffer().putChar('\000');
+    	if (text != null)
+    	{
+    		final int len = text.length();
+    		for (int i = 0; i < len; i++)
+    		{
+    			_buf.putChar(text.charAt(i));
+    		}
+    	}
+    	
+    	_buf.putChar('\000');
     }
     
     protected abstract void write();
-    
-    protected abstract int getHeaderSize();
-    
-    protected abstract void writeHeader(int dataSize);
 }
