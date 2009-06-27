@@ -18,96 +18,94 @@
 package org.mmocore.network;
 
 import java.io.IOException;
-import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.channels.ClosedChannelException;
-import java.nio.channels.DatagramChannel;
-import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
-import java.util.Set;
 
 import javolution.util.FastList;
-import javolution.util.FastList.Node;
 
 /**
  * @author KenM<BR>
  * Parts of design based on networkcore from WoodenGil
  */
-public class SelectorThread<T extends MMOClient> extends Thread
+public final class SelectorThread<T extends MMOClient<?>> extends Thread
 {
-    private Selector _selector;
+	// default BYTE_ORDER
+	private static final ByteOrder BYTE_ORDER = ByteOrder.LITTLE_ENDIAN;
+	// default HEADER_SIZE
+	private static final int HEADER_SIZE = 2;
     
+	// Selector
+	private final Selector _selector;
+	
     // Implementations
     private final IPacketHandler<T> _packetHandler;
-    private final IPacketHandler<T> _udpPacketHandler;
-    private IMMOExecutor<T> _executor;
-    private IClientFactory<T> _clientFactory;
-    private IAcceptFilter _acceptFilter;
-    private final UDPHeaderHandler<T> _udpHeaderHandler;
-    private final TCPHeaderHandler<T> _tcpHeaderHandler;
+    private final IMMOExecutor<T> _executor;
+    private final IClientFactory<T> _clientFactory;
+    private final IAcceptFilter _acceptFilter;
     
-    private boolean _shutdown;
-    
-    // Pending Close
-    private FastList<MMOConnection<T>> _pendingClose = new FastList<MMOConnection<T>>();
-    
-    // Configs
+    // Configurations
     private final int HELPER_BUFFER_SIZE;
     private final int HELPER_BUFFER_COUNT;
     private final int MAX_SEND_PER_PASS;
-    private int HEADER_SIZE = 2;
-    private final ByteOrder BYTE_ORDER;
+    private final int MAX_READ_PER_PASS;
     private final long SLEEP_TIME;
     
-    // MAIN BUFFERS
+    // Main Buffers
     private final ByteBuffer DIRECT_WRITE_BUFFER;
     private final ByteBuffer WRITE_BUFFER;
     private final ByteBuffer READ_BUFFER;
+    
+    // String Buffer
+    private final NioNetStringBuffer STRING_BUFFER;
 
     // ByteBuffers General Purpose Pool
-    private final FastList<ByteBuffer> _bufferPool = new FastList<ByteBuffer>();
-
-    public SelectorThread(SelectorConfig<T> sc, IMMOExecutor<T> executor, IClientFactory<T> clientFactory, IAcceptFilter acceptFilter) throws IOException
+    private final FastList<ByteBuffer> _bufferPool;
+    
+    // Pending Close
+    private final NioNetStackList<MMOConnection<T>> _pendingClose;
+    
+    private boolean _shutdown;
+    
+    public SelectorThread(final SelectorConfig sc, final IMMOExecutor<T> executor, final IPacketHandler<T> packetHandler, final IClientFactory<T> clientFactory, final IAcceptFilter acceptFilter) throws IOException
     {
-        HELPER_BUFFER_SIZE = sc.getHelperBufferSize();
-        HELPER_BUFFER_COUNT = sc.getHelperBufferCount();
-        MAX_SEND_PER_PASS = sc.getMaxSendPerPass();
-        BYTE_ORDER = sc.getByteOrder();
-        SLEEP_TIME = sc.getSelectorSleepTime();
+    	super.setName("SelectorThread-" + super.getId());
+    	
+        HELPER_BUFFER_SIZE = sc.HELPER_BUFFER_SIZE;
+        HELPER_BUFFER_COUNT = sc.HELPER_BUFFER_COUNT;
+        MAX_SEND_PER_PASS = sc.MAX_SEND_PER_PASS;
+        MAX_READ_PER_PASS = sc.MAX_READ_PER_PASS;
         
-        DIRECT_WRITE_BUFFER = ByteBuffer.allocateDirect(sc.getWriteBufferSize()).order(BYTE_ORDER);
-        WRITE_BUFFER = ByteBuffer.wrap(new byte[sc.getWriteBufferSize()]).order(BYTE_ORDER);
-        READ_BUFFER = ByteBuffer.wrap(new byte[sc.getReadBufferSize()]).order(BYTE_ORDER);
-
-        _udpHeaderHandler = sc.getUDPHeaderHandler();
-        _tcpHeaderHandler = sc.getTCPHeaderHandler();
-        this.initBufferPool();
-        _acceptFilter = acceptFilter;
-        _packetHandler = sc.getTCPPacketHandler();
-        _udpPacketHandler = sc.getUDPPacketHandler();
-        _clientFactory = clientFactory;
-        this.setExecutor(executor);
-        this.initializeSelector();
-    }
-
-    protected void initBufferPool()
-    {
+        SLEEP_TIME = sc.SLEEP_TIME;
+        
+        DIRECT_WRITE_BUFFER = ByteBuffer.allocateDirect(sc.WRITE_BUFFER_SIZE).order(BYTE_ORDER);
+        WRITE_BUFFER = ByteBuffer.wrap(new byte[sc.WRITE_BUFFER_SIZE]).order(BYTE_ORDER);
+        READ_BUFFER = ByteBuffer.wrap(new byte[sc.READ_BUFFER_SIZE]).order(BYTE_ORDER);
+        
+        STRING_BUFFER = new NioNetStringBuffer(64 * 1024);
+        
+        _pendingClose = new NioNetStackList<MMOConnection<T>>();
+        _bufferPool = new FastList<ByteBuffer>();
         for (int i = 0; i < HELPER_BUFFER_COUNT; i++)
         {
-            this.getFreeBuffers().addLast(ByteBuffer.wrap(new byte[HELPER_BUFFER_SIZE]).order(BYTE_ORDER));
+        	_bufferPool.addLast(ByteBuffer.wrap(new byte[HELPER_BUFFER_SIZE]).order(BYTE_ORDER));
         }
+        
+        _acceptFilter = acceptFilter;
+        _packetHandler = packetHandler;
+        _clientFactory = clientFactory;
+        _executor = executor;
+        _selector = Selector.open();
     }
-
-    public void openServerSocket(InetAddress address, int tcpPort) throws IOException
+    
+    public final void openServerSocket(InetAddress address, int tcpPort) throws IOException
     {
         ServerSocketChannel selectable = ServerSocketChannel.open();
         selectable.configureBlocking(false);
@@ -121,151 +119,109 @@ public class SelectorThread<T extends MMOClient> extends Thread
         {
             ss.bind(new InetSocketAddress(address, tcpPort));
         }
-        selectable.register(this.getSelector(), SelectionKey.OP_ACCEPT);
+        selectable.register(_selector, SelectionKey.OP_ACCEPT);
     }
     
-    public void openDatagramSocket(InetAddress address, int udpPort) throws IOException
+    final ByteBuffer getPooledBuffer()
     {
-        DatagramChannel selectable = DatagramChannel.open();
-        selectable.configureBlocking(false);
-
-        DatagramSocket ss = selectable.socket();
-        if (address == null)
-        {
-            ss.bind(new InetSocketAddress(udpPort));
-        }
-        else
-        {
-            ss.bind(new InetSocketAddress(address, udpPort));
-        }
-        selectable.register(this.getSelector(), SelectionKey.OP_READ);
-    }
-
-    protected void initializeSelector() throws IOException
-    {
-        this.setName("SelectorThread-"+this.getId());
-        this.setSelector(Selector.open());
-    }
-
-    protected ByteBuffer getPooledBuffer()
-    {
-        if (this.getFreeBuffers().isEmpty())
+        if (_bufferPool.isEmpty())
         {
             return ByteBuffer.wrap(new byte[HELPER_BUFFER_SIZE]).order(BYTE_ORDER);
         }
         else
         {
-            return this.getFreeBuffers().removeFirst();
+            return _bufferPool.removeFirst();
         }
     }
 
-    public void recycleBuffer(ByteBuffer buf)
+    final void recycleBuffer(final ByteBuffer buf)
     {
-        if (this.getFreeBuffers().size() < HELPER_BUFFER_COUNT)
+        if (_bufferPool.size() < HELPER_BUFFER_COUNT)
         {
             buf.clear();
-            this.getFreeBuffers().addLast(buf);
+            _bufferPool.addLast(buf);
         }
     }
-
-    public FastList<ByteBuffer> getFreeBuffers()
-    {
-        return _bufferPool;
-    }
     
-    public SelectionKey registerClientSocket(SelectableChannel sc, int interestOps) throws ClosedChannelException
+    @SuppressWarnings("unchecked")
+    @Override
+    public final void run()
     {
-        SelectionKey sk = null;
+        int selectedKeysCount = 0;
         
-        sk = sc.register(this.getSelector(), interestOps);
-        //sk.attach(ob)
-        return sk;
-    }
-
-    public void run()
-    {
-        //System.out.println("Selector Started");
-        int totalKeys = 0;
-        Iterator<SelectionKey> iter;
         SelectionKey key;
         MMOConnection<T> con;
-        FastList.Node<MMOConnection<T>> n, end, temp;
         
-        // main loop
-        for (;;)
+        Iterator<SelectionKey> selectedKeys;
+        
+        while (!_shutdown)
         {
-            // check for shutdown
-            if (this.isShuttingDown())
-            {
-                this.closeSelectorThread();
-                break;
-            }
-
             try
             {
-                totalKeys = this.getSelector().selectNow();
+            	selectedKeysCount = _selector.selectNow();
             }
             catch (IOException e)
             {
-                //TODO logging
                 e.printStackTrace();
             }
-            //System.out.println("Selector Selected "+totalKeys);
 
-            if (totalKeys > 0)
+            if (selectedKeysCount > 0)
             {
-                Set<SelectionKey> keys = this.getSelector().selectedKeys();
-                iter = keys.iterator();
-
-
-
-                while (iter.hasNext())
-                {
-                    key = iter.next();
-                    iter.remove();
-                    
-                    switch (key.readyOps())
+            	selectedKeys = _selector.selectedKeys().iterator();
+            	
+            	while (selectedKeys.hasNext())
+            	{
+            		key = selectedKeys.next();
+            		selectedKeys.remove();
+            		
+            		con = (MMOConnection<T>)key.attachment();
+            		
+            		switch (key.readyOps())
                     {
                         case SelectionKey.OP_CONNECT:
-                            this.finishConnection(key);
+                        {
+                        	finishConnection(key, con);
                             break;
+                        }
+                        
                         case SelectionKey.OP_ACCEPT:
-                            this.acceptConnection(key);
+                        {
+                        	acceptConnection(key, con);
                             break;
+                        }
+                        
                         case SelectionKey.OP_READ:
-                            this.readPacket(key);
+                        {
+                        	readPacket(key, con);
                             break;
+                        }
+                        
                         case SelectionKey.OP_WRITE:
-                            this.writePacket2(key);
+                        {
+                        	writePacket(key, con);
                             break;
+                        }
+                        
                         case SelectionKey.OP_READ | SelectionKey.OP_WRITE:
-                            this.writePacket2(key);
-                            // key might have been invalidated on writePacket
+                        {
+                        	writePacket(key, con);
                             if (key.isValid())
-                            {
-                                this.readPacket(key);
-                            }
+                                readPacket(key, con);
+                            
                             break;
+                        }
                     }
-                    
-                    
-                }
+            	}
             }
             
-            // process pending close
-            synchronized (this.getPendingClose())
+            synchronized (_pendingClose)
             {
-                for (n = this.getPendingClose().head(), end = this.getPendingClose().tail(); (n = n.getNext()) != end;)
-                {
-                    con = n.getValue();
-                    if (con.getSendQueue().isEmpty())
-                    {
-                        temp = n.getPrevious();
-                        this.getPendingClose().delete(n);
-                        n = temp;
-                        this.closeConnectionImpl(con);
-                    }
-                }
+            	while (!_pendingClose.isEmpty())
+            	{
+            		con = _pendingClose.removeFirst();
+            		writeClosePacket(con);
+            		closeConnectionImpl(con.getSelectionKey(), con);
+            	}
             }
             
             try
@@ -277,23 +233,20 @@ public class SelectorThread<T extends MMOClient> extends Thread
                 e.printStackTrace();
             }
         }
-
-
+        
+        closeSelectorThread();
     }
-
-    @SuppressWarnings("unchecked")
-    protected void finishConnection(SelectionKey key)
+    
+    private final void finishConnection(final SelectionKey key, final MMOConnection<T> con)
     {
         try
         {
-            ((SocketChannel) key.channel()).finishConnect();
+            ((SocketChannel)key.channel()).finishConnect();
         }
         catch (IOException e)
         {
-            MMOConnection<T> con = (MMOConnection<T>) key.attachment();
-            T client = con.getClient();
-            client.getConnection().onForcedDisconnection();
-            this.closeConnectionImpl(client.getConnection());
+            con.getClient().onForcedDisconnection();
+            closeConnectionImpl(key, con);
         }
 
         // key might have been invalidated on finishConnect()
@@ -304,20 +257,22 @@ public class SelectorThread<T extends MMOClient> extends Thread
         }
     }
 
-    protected void acceptConnection(SelectionKey key)
+    private final void acceptConnection(final SelectionKey key, MMOConnection<T> con)
     {
+    	ServerSocketChannel ssc = (ServerSocketChannel)key.channel();
         SocketChannel sc;
+        
         try
         {
-            while ((sc = ((ServerSocketChannel) key.channel()).accept()) != null)
+            while ((sc = ssc.accept()) != null)
             {
-                if (this.getAcceptFilter() == null || this.getAcceptFilter().accept(sc))
+                if (_acceptFilter == null || _acceptFilter.accept(sc))
                 {
                     sc.configureBlocking(false);
-                    SelectionKey clientKey = sc.register(this.getSelector(), SelectionKey.OP_READ /*| SelectionKey.OP_WRITE*/);
+                    SelectionKey clientKey = sc.register(_selector, SelectionKey.OP_READ);
                     
-                    MMOConnection<T> con = new MMOConnection<T>(this, new TCPSocket(sc.socket()), clientKey);
-                    T client = this.getClientFactory().create(con);
+                    con = new MMOConnection<T>(this, sc.socket(), clientKey);
+                    con.setClient(_clientFactory.create(con));
                     clientKey.attach(con);
                 }
                 else
@@ -331,868 +286,392 @@ public class SelectorThread<T extends MMOClient> extends Thread
             e.printStackTrace();
         }
     }
-
-    protected void readPacket(SelectionKey key)
-    {
-        if (key.channel() instanceof SocketChannel)
-        {
-            this.readTCPPacket(key);
-        }
-        else
-        {
-            this.readUDPPacket(key);
-        }
-    }
     
-    @SuppressWarnings("unchecked")
-    protected void readTCPPacket(SelectionKey key)
+    private final void readPacket(final SelectionKey key, final MMOConnection<T> con)
     {
-        MMOConnection<T> con = (MMOConnection<T>) key.attachment();
-        T client = con.getClient();
-        
-        ByteBuffer buf;
-        if ((buf = con.getReadBuffer()) == null)
-        {
-            buf = READ_BUFFER;
-        }
-        int result = -2;
-        
-        // if we try to to do a read with no space in the buffer it will read 0 bytes
-        // going into infinite loop
-        if (buf.position() == buf.limit())
-        {
-            // should never happen
-            System.err.println("POS ANTES SC.READ(): "+buf.position()+" limit: "+buf.limit());
-            System.err.println("NOOBISH ERROR "+( buf == READ_BUFFER ? "READ_BUFFER" : "temp"));
-            System.exit(0);
-        }
-        
-        //System.out.println("POS ANTES SC.READ(): "+buf.position()+" limit: "+buf.limit()+" - buf: "+(buf == READ_BUFFER ? "READ_BUFFER" : "TEMP"));
-        
-        try
-        {
-            result = con.getReadableByteChannel().read(buf);
-        }
-        catch (IOException e)
-        {
-            //error handling goes bellow
-        }
-        
-        //System.out.println("LEU: "+result+" pos: "+buf.position());
-        if (result > 0)
-        {
-            // TODO this should be done vefore even reading
-            if (!con.isClosed())
+    	if (!con.isClosed())
+    	{
+    		ByteBuffer buf;
+            if ((buf = con.getReadBuffer()) == null)
             {
-                buf.flip();
-                // try to read as many packets as possible
-                while (this.tryReadPacket2(key, client, buf));
+                buf = READ_BUFFER;
             }
-            else
+            
+            // if we try to to do a read with no space in the buffer it will read 0 bytes
+            // going into infinite loop
+            if (buf.position() == buf.limit())
             {
-                if (buf == READ_BUFFER)
-                {
-                    READ_BUFFER.clear();
-                }
+                // should never happen
+                System.err.println("POS ANTES SC.READ(): "+buf.position()+" limit: "+buf.limit());
+                System.err.println("NOOBISH ERROR "+( buf == READ_BUFFER ? "READ_BUFFER" : "temp"));
+                System.exit(0);
             }
-        }
-        else if (result == 0)
-        {
-            // read interest but nothing to read? wtf?
-            System.out.println("NOOBISH ERROR 2 THE MISSION");
-            System.exit(0);
-        }
-        else if (result == -1)
-        {
-            this.closeConnectionImpl(con);
-        }
-        else
-        {
-            con.onForcedDisconnection();
-            this.closeConnectionImpl(con);
-        }
-    }
-    
-    @SuppressWarnings("unchecked")
-    protected void readUDPPacket(SelectionKey key)
-    {
-        int result = -2;
-        ByteBuffer buf = READ_BUFFER;
-        
-        DatagramChannel dc = ((DatagramChannel) key.channel());
-        if (!dc.isConnected())
-        {
+            
+            int result = -2;
+            
             try
             {
-                dc.configureBlocking(false);
-                SocketAddress address = dc.receive(buf);
-                buf.flip();
-                this._udpHeaderHandler.onUDPConnection(this, dc, address, buf);
-            }
-            catch (IOException e)
-            {
-
-            }
-            buf.clear();
-        }
-        else
-        {
-            //System.err.println("UDP CONN "+buf.remaining());
-            try
-            {
-                result = dc.read(buf);
+                result = con.read(buf);
             }
             catch (IOException e)
             {
                 //error handling goes bellow
-                //System.err.println("UDP ERR: "+e.getMessage());
             }
-
-            //System.out.println("LEU: "+result+" pos: "+buf.position());
+            
             if (result > 0)
             {
-                buf.flip();
-                // try to read as many packets as possible
-                while (this.tryReadUDPPacket(key, buf));
-            }
-            else if (result == 0)
-            {
-                // read interest but nothing to read? wtf?
-                System.out.println("CRITICAL ERROR ON SELECTOR");
-                System.exit(0);
+            	buf.flip();
+            	
+            	final T client = con.getClient();
+            	
+            	for (int i = 0; i < MAX_READ_PER_PASS; i++)
+            	{
+            		 if (!tryReadPacket(key, client, buf, con))
+            			return;
+            	}
+            	
+            	// only reachable if MAX_READ_PER_PASS has been reached
+            	// check if there are some more bytes in buffer
+            	// and allocate/compact to prevent content lose.
+            	if (buf.remaining() > 0)
+            	{
+            		// did we use the READ_BUFFER ?
+                    if (buf == READ_BUFFER)
+                    {
+                    	// move the pending byte to the connections READ_BUFFER
+                        allocateReadBuffer(con);
+                    }
+                    else
+                    {
+                    	// move the first byte to the beginning :)
+                        buf.compact();
+                    }
+            	}
             }
             else
             {
-                // TODO kill and cleanup this UDP connection
-                //System.err.println("UDP ERROR: "+result);
+            	switch (result)
+            	{
+            		case 0:
+            		case -1:
+            		{
+            			closeConnectionImpl(key, con);
+            			break;
+            		}
+            		case -2:
+            		{
+            			con.getClient().onForcedDisconnection();
+            			closeConnectionImpl(key, con);
+            			break;
+            		}
+            	}
+                
             }
-        }
+    	}
     }
-
-    /*protected boolean tryReadPacket(T client, ByteBuffer buf)
+    
+    private final boolean tryReadPacket(final SelectionKey key, final T client, final ByteBuffer buf, final MMOConnection<T> con)
     {
-        MMOConnection con = client.getConnection();
-        //System.out.println("BUFF POS ANTES DE LER: "+buf.position()+" - REMAINING: "+buf.remaining());
-
-        if (buf.hasRemaining())
-        {
-            int result = buf.remaining();
-            
-            // then check if there are enough bytes for the header
-            if (result >= HEADER_SIZE)
-            {
-                // then read header and check if we have the whole packet
-                int size = this.getHeaderValue(buf);
-                //System.out.println("IF: ("+size+" <= "+result+") => (size <= result)");
-                if (size <= result)
+    	switch (buf.remaining())
+    	{
+    		case 0:
+    		{
+    			// buffer is full
+    			// nothing to read
+    			return false;
+    		}
+    		
+    		case 1:
+    		{
+    			// we don`t have enough data for header so we need to read
+            	key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+                
+            	// did we use the READ_BUFFER ?
+                if (buf == READ_BUFFER)
                 {
-                    //System.out.println("BOA");
-
+                	// move the pending byte to the connections READ_BUFFER
+                    allocateReadBuffer(con);
+                }
+                else
+                {
+                	// move the first byte to the beginning :)
+                    buf.compact();
+                }
+                
+                return false;
+    		}
+    		
+    		default:
+    		{
+    			// data size excluding header size :>
+    			final int dataPending = (buf.getShort() & 0xFFFF) - HEADER_SIZE;
+                
+                // do we got enough bytes for the packet?
+                if (dataPending <= buf.remaining())
+                {
                     // avoid parsing dummy packets (packets without body)
-                    if (size > HEADER_SIZE)
+                    if (dataPending > 0)
                     {
-                        this.parseClientPacket(this.getPacketHandler(), buf, size, client);
+                        final int pos = buf.position();
+                        parseClientPacket(pos, buf, dataPending, client);
+                        buf.position(pos + dataPending);
                     }
-
+                    
                     // if we are done with this buffer
                     if (!buf.hasRemaining())
                     {
-                        //System.out.println("BOA 2");
                         if (buf != READ_BUFFER)
                         {
                             con.setReadBuffer(null);
-                            this.recycleBuffer(buf);
+                            recycleBuffer(buf);
                         }
                         else
                         {
                             READ_BUFFER.clear();
                         }
-
+                        
                         return false;
                     }
-                    else
-                    {
-                        // nothing
-                    }
-
+                    
                     return true;
                 }
                 else
                 {
-                    //System.out.println("ENABLEI");
-                    client.getConnection().enableReadInterest();
+                    // we don`t have enough bytes for the dataPacket so we need to read
+                	key.interestOps(key.interestOps() | SelectionKey.OP_READ);
                     
-                    //System.out.println("LIMIT "+buf.limit());
+                	// did we use the READ_BUFFER ?
                     if (buf == READ_BUFFER)
                     {
+                    	// move it`s position 
                         buf.position(buf.position() - HEADER_SIZE);
-                        this.allocateReadBuffer(con);
+                        // move the pending byte to the connections READ_BUFFER
+                        allocateReadBuffer(con);
                     }
                     else
                     {
                         buf.position(buf.position() - HEADER_SIZE);
                         buf.compact();
                     }
+                    
                     return false;
                 }
-            }
-            else
-            {
-                if (buf == READ_BUFFER)
-                {
-                    this.allocateReadBuffer(con);
-                }
-                else
-                {
-                    buf.compact();
-                }
-                return false;
-            }
-        }
-        else
-        {
-            //con.disableReadInterest();
-            return false; //empty buffer
-        }
-    }*/
-    
-    @SuppressWarnings("unchecked")
-    protected boolean tryReadPacket2(SelectionKey key, T client, ByteBuffer buf)
-    {
-        MMOConnection<T> con = client.getConnection();
-        //System.out.println("BUFF POS ANTES DE LER: "+buf.position()+" - REMAINING: "+buf.remaining());
-
-        if (buf.hasRemaining())
-        {
-            TCPHeaderHandler<T> handler = _tcpHeaderHandler;
-            // parse all jeaders
-            HeaderInfo<T> ret;
-            while (!handler.isChildHeaderHandler())
-            {
-                handler.handleHeader(key, buf);
-                handler = handler.getSubHeaderHandler();
-            }
-            // last header
-            ret = handler.handleHeader(key, buf);
-            
-            if (ret != null)
-            {
-                int result = buf.remaining();
-
-                // then check if header was processed
-                if (ret.headerFinished())
-                {
-                    // get expected packet size
-                    int size = ret.getDataPending();
-
-                    //System.out.println("IF: ("+size+" <= "+result+") => (size <= result)");
-                    // do we got enough bytes for the packet?
-                    if (size <= result)
-                    {
-                        // avoid parsing dummy packets (packets without body)
-                        if (size > 0)
-                        {
-                            int pos = buf.position();
-                            this.parseClientPacket(this.getPacketHandler(), buf, size, client);
-                            buf.position(pos + size);
-                        }
-
-                        // if we are done with this buffer
-                        if (!buf.hasRemaining())
-                        {
-                            //System.out.println("BOA 2");
-                            if (buf != READ_BUFFER)
-                            {
-                                con.setReadBuffer(null);
-                                this.recycleBuffer(buf);
-                            }
-                            else
-                            {
-                                READ_BUFFER.clear();
-                            }
-
-                            return false;
-                        }
-                        else
-                        {
-                            // nothing
-                        }
-
-                        return true;
-                    }
-                    else
-                    {
-                        // we dont have enough bytes for the dataPacket so we need to read
-                        client.getConnection().enableReadInterest();
-
-                        //System.out.println("LIMIT "+buf.limit());
-                        if (buf == READ_BUFFER)
-                        {
-                            buf.position(buf.position() - HEADER_SIZE);
-                            this.allocateReadBuffer(con);
-                        }
-                        else
-                        {
-                            buf.position(buf.position() - HEADER_SIZE);
-                            buf.compact();
-                        }
-                        return false;
-                    }
-                }
-                else
-                {
-                    // we dont have enough data for header so we need to read
-                    client.getConnection().enableReadInterest();
-
-                    if (buf == READ_BUFFER)
-                    {
-                        this.allocateReadBuffer(con);
-                    }
-                    else
-                    {
-                        buf.compact();
-                    }
-                    return false;
-                }
-            }
-            else
-            {
-                // null ret means critical error
-                // kill the connection
-                this.closeConnectionImpl(con);
-                return false;
-            }
-        }
-        else
-        {
-            //con.disableReadInterest();
-            return false; //empty buffer
-        }
+    		}
+    	}
     }
     
-    @SuppressWarnings("unchecked")
-    protected boolean tryReadUDPPacket(SelectionKey key, ByteBuffer buf)
+    private final void allocateReadBuffer(final MMOConnection<T> con)
     {
-        if (buf.hasRemaining())
-        {
-            UDPHeaderHandler<T> handler = _udpHeaderHandler;
-            // parse all jeaders
-            HeaderInfo<T> ret;
-            while (!handler.isChildHeaderHandler())
-            {
-                handler.handleHeader(buf);
-                handler = handler.getSubHeaderHandler();
-            }
-            // last header
-            ret = handler.handleHeader(buf);
-            
-            if (ret != null)
-            {
-                int result = buf.remaining();
-                
-                
-                // then check if header was processed
-                if (ret.headerFinished())
-                {
-                    T client = ret.getClient();
-                    MMOConnection<T> con = client.getConnection();
-
-                    // get expected packet size
-                    int size = ret.getDataPending();
-
-                    //System.out.println("IF: ("+size+" <= "+result+") => (size <= result)");
-                    // do we got enough bytes for the packet?
-                    if (size <= result)
-                    {
-                        if (ret.isMultiPacket())
-                        {
-                            while (buf.hasRemaining())
-                            {
-                                this.parseClientPacket(_udpPacketHandler, buf, buf.remaining(), client);
-                            }
-                        }
-                        else
-                        {
-                            // avoid parsing dummy packets (packets without body)
-                            if (size > 0)
-                            {
-                                int pos = buf.position();
-                                this.parseClientPacket(_udpPacketHandler, buf, size, client);
-                                buf.position(pos + size);
-                            }
-                        }
-
-                        // if we are done with this buffer
-                        if (!buf.hasRemaining())
-                        {
-                            //System.out.println("BOA 2");
-                            if (buf != READ_BUFFER)
-                            {
-                                con.setReadBuffer(null);
-                                this.recycleBuffer(buf);
-                            }
-                            else
-                            {
-                                READ_BUFFER.clear();
-                            }
-
-                            return false;
-                        }
-                        else
-                        {
-                            // nothing
-                        }
-
-                        return true;
-                    }
-                    else
-                    {
-                        // we dont have enough bytes for the dataPacket so we need to read
-                        client.getConnection().enableReadInterest();
-
-                        //System.out.println("LIMIT "+buf.limit());
-                        if (buf == READ_BUFFER)
-                        {
-                            buf.position(buf.position() - HEADER_SIZE);
-                            this.allocateReadBuffer(con);
-                        }
-                        else
-                        {
-                            buf.position(buf.position() - HEADER_SIZE);
-                            buf.compact();
-                        }
-                        return false;
-                    }
-                }
-                else
-                {
-                    buf.clear(); // READ_BUFFER
-                    return false;
-                }
-            }
-            else
-            {
-                buf.clear(); // READ_BUFFER
-                return false;
-            }
-        }
-        else
-        {
-            //con.disableReadInterest();
-            buf.clear();
-            return false; //empty buffer
-        }
-    }
-
-    protected void allocateReadBuffer(MMOConnection<T> con)
-    {
-        //System.out.println("con: "+Integer.toHexString(con.hashCode()));
-        //Util.printHexDump(READ_BUFFER);
-        con.setReadBuffer(this.getPooledBuffer().put(READ_BUFFER));
+        con.setReadBuffer(getPooledBuffer().put(READ_BUFFER));
         READ_BUFFER.clear();
     }
 
-    protected void parseClientPacket(IPacketHandler<T> handler, ByteBuffer buf, int dataSize, T client)
+    private final void parseClientPacket(final int pos, final ByteBuffer buf, final int dataSize, final T client)
     {
-        int pos = buf.position();
+        final boolean ret = client.decrypt(buf, dataSize);
         
-        boolean ret = client.decrypt(buf, dataSize);
-        
-        //buf.position(pos); //can be annoying for some decrypt impl decrypt should place the pos at the right place itself 
-        
-        //System.out.println("pCP -> BUF: POS: "+buf.position()+" - LIMIT: "+buf.limit()+" == Packet: SIZE: "+dataSize);
-        
-        if (buf.hasRemaining() && ret)
+        if (ret && buf.hasRemaining())
         {
             //  apply limit
-            int limit = buf.limit();
+            final int limit = buf.limit();
             buf.limit(pos + dataSize);
-            //System.out.println("pCP2 -> BUF: POS: "+buf.position()+" - LIMIT: "+buf.limit()+" == Packet: SIZE: "+size);
-            ReceivablePacket<T> cp = handler.handlePacket(buf, client);
+            final ReceivablePacket<T> cp = _packetHandler.handlePacket(buf, client);
 
             if (cp != null)
             {
-                cp.setByteBuffer(buf);
-                cp.setClient(client);
+                cp._buf = buf;
+                cp._sbuf = STRING_BUFFER;
+                cp._client = client;
                 
                 if (cp.read())
                 {
-                    this.getExecutor().execute(cp);
+                	_executor.execute(cp);
                 }
+                
+                cp._buf = null;
+                cp._sbuf = null;
+                //cp._client = null;
             }
             buf.limit(limit);
         }
     }
-
-    @SuppressWarnings("unchecked")
-    /*protected void writePacket(SelectionKey key)
+    
+    private final void writeClosePacket(final MMOConnection<T> con)
     {
-        T client = ((T) key.attachment());
-        MMOConnection<T> con = client.getConnection();
-
-        ByteBuffer buf;
-        boolean sharedBuffer = false;
-        if ((buf = con.getWriteBuffer()) == null)
-        {
-            SendablePacket<T> sp = null;
-            synchronized (con.getSendQueue())
+    	final SendablePacket<T> sp = con.getClosePacket();
+    	if (sp != null)
+    	{
+    		WRITE_BUFFER.clear();
+    		
+    		putPacketIntoWriteBuffer(con.getClient(), sp);
+    		
+    		WRITE_BUFFER.flip();
+    		
+    		try
             {
-                if (!con.getSendQueue().isEmpty())
-                {
-                    sp = con.getSendQueue().removeFirst();
-                }
+                con.write(WRITE_BUFFER);
             }
-            if (sp == null)
+            catch (IOException e)
             {
-                System.out.println("OMG WRITE BUT NO WRITE");
-                return;
+                // error handling goes on the if bellow
             }
-            //System.out.println("WRITING: "+sp.getClass().getSimpleName());
-            this.prepareWriteBuffer(client, sp);
-            buf = sp.getByteBuffer();
-            //System.out.println("WRITED:: "+sp.getClass().getSimpleName());
-            //System.out.println("wp:" +buf.position());
-            buf.flip();
-            
-            sharedBuffer = true;
-        }
-
-        int size = buf.remaining();
-        int result = -1;
-
-        try
-        {
-            result = con.getSocketChannel().write(buf);
-        }
-        catch (IOException e)
-        {
-            // error handling goes on the if bellow
-        }
-
-        // check if no error happened
-        if (result > 0)
-        {
-            // check if we writed everything
-            if (result == size)
-            {
-                //System.out.println("WRITEI COMPLETO");
-                synchronized (con.getSendQueue())
-                {
-                    if (con.getSendQueue().isEmpty())
-                    {
-                        con.disableWriteInterest();
-                    }
-                }
-
-                // if it was a pooled buffer we can recycle
-                if (!sharedBuffer)
-                {
-                    this.recycleBuffer(buf);
-                    con.setWriteBuffer(null);
-                }
-            }
-            else //incomplete write
-            {
-                //System.out.println("WRITEI INCOMPLETO");
-                // if its the main buffer allocate a pool one
-                if (sharedBuffer)
-                {
-                    con.setWriteBuffer(this.getPooledBuffer().put(buf));
-                }
-                else
-                {
-                    con.setWriteBuffer(buf);
-                }
-            }
-        }
-        else
-        {
-            con.onForcedDisconnection();
-            this.closeConnectionImpl(con);
-        }
-    }*/
-
-    protected void prepareWriteBuffer(T client, SendablePacket<T> sp)
-    {
-        WRITE_BUFFER.clear();
-
-        //set the write buffer
-        sp.setByteBuffer(WRITE_BUFFER);
-
-        // reserve space for the size
-        int headerPos = sp.getByteBuffer().position();
-        int headerSize = sp.getHeaderSize();
-        sp.getByteBuffer().position(headerPos + headerSize);
-
-        // write contents
-        sp.write();
-        
-
-        int dataSize = sp.getByteBuffer().position() - headerPos - headerSize;
-        sp.getByteBuffer().position(headerPos + headerSize);
-        client.encrypt(sp.getByteBuffer(), dataSize);
-        
-        // write size
-        sp.writeHeader(dataSize);
-        //sp.writeHeader(HEADER_TYPE, headerPos);
+    	}
     }
     
-    @SuppressWarnings("unchecked")
-    protected void writePacket2(SelectionKey key)
+    protected final void writePacket(final SelectionKey key, final MMOConnection<T> con)
     {
-        MMOConnection<T> con = (MMOConnection<T>) key.attachment();
-        T client = con.getClient();
+        if (!prepareWriteBuffer(con))
+        {
+        	key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+        	return;
+        }
         
-        this.prepareWriteBuffer2(con);
         DIRECT_WRITE_BUFFER.flip();
         
-        int size = DIRECT_WRITE_BUFFER.remaining();
+        final int size = DIRECT_WRITE_BUFFER.remaining();
         
-        //System.err.println("WRITE SIZE: "+size);
         int result = -1;
-
+        
         try
         {
-            result = con.getWritableChannel().write(DIRECT_WRITE_BUFFER);
+            result = con.write(DIRECT_WRITE_BUFFER);
         }
         catch (IOException e)
         {
             // error handling goes on the if bellow
-            System.err.println("IOError: "+e.getMessage());
         }
-
+        
         // check if no error happened
         if (result >= 0)
         {
-            // check if we writed everything
+            // check if we written everything
             if (result == size)
             {
                 // complete write
-                //System.err.println("FULL WRITE");
-                //System.err.flush();
-                
-                // if there was a a pending write then we need to finish the operation
-                /*if (con.getWriterMark() > 0)
-                {
-                    con.finishPrepending(con.getWriterMark());
-                }*/
-                
                 synchronized (con.getSendQueue())
                 {
                     if (con.getSendQueue().isEmpty() && !con.hasPendingWriteBuffer())
                     {
-                        con.disableWriteInterest();
+                    	key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
                     }
                 }
             }
             else //incomplete write
             {               
                 con.createWriteBuffer(DIRECT_WRITE_BUFFER);
-                //System.err.println("DEBUG: INCOMPLETE WRITE - write size: "+size);
-                //System.err.flush();
             }
-            
-            if (result == 0)
-            {
-                //System.err.println("DEBUG: write result: 0 - write size: "+size+" - DWB rem: "+DIRECT_WRITE_BUFFER.remaining());
-                //System.err.flush();
-            }
-            
-            
         }
         else
         {
-            //System.err.println("IOError: "+result);
-            //System.err.flush();
-            con.onForcedDisconnection();
-            this.closeConnectionImpl(con);
+            con.getClient().onForcedDisconnection();
+            closeConnectionImpl(key, con);
         }
     }
-
-    @SuppressWarnings("unchecked")
-    protected void prepareWriteBuffer2(MMOConnection<T> con)
+    
+    private final boolean prepareWriteBuffer(final MMOConnection<T> con)
     {
+    	boolean hasPending = false;
         DIRECT_WRITE_BUFFER.clear();
-
-
-        // if theres pending content add it
+        
+        // if there is pending content add it
         if (con.hasPendingWriteBuffer())
         {
             con.movePendingWriteBufferTo(DIRECT_WRITE_BUFFER);
-            //System.err.println("ADDED PENDING TO DIRECT "+DIRECT_WRITE_BUFFER.position());
+            hasPending = true;
         }
-
+        
         if (DIRECT_WRITE_BUFFER.remaining() > 1 && !con.hasPendingWriteBuffer())
         {
-            
-            int i = 0;
-
-            FastList<SendablePacket<T>> sendQueue = con.getSendQueue();
-            Node<SendablePacket<T>> n, temp, end;
+            final NioNetStackList<SendablePacket<T>> sendQueue = con.getSendQueue();
+            final T client = con.getClient();
             SendablePacket<T> sp;
-
-            synchronized (sendQueue)
-            {
-                for (n = sendQueue.head(), end = sendQueue.tail(); (n = n.getNext()) != end && i++ < MAX_SEND_PER_PASS;)
+            
+            for (int i = 0; i < MAX_SEND_PER_PASS; i++)
+        	{
+        		synchronized (con.getSendQueue())
+        		{
+        			if (sendQueue.isEmpty())
+        				sp = null;
+        			else
+        				sp = sendQueue.removeFirst();
+        		}
+        		
+        		if (sp == null)
+        			break;
+        		
+        		hasPending = true;
+        		
+        		// put into WriteBuffer
+        		putPacketIntoWriteBuffer(client, sp);
+        		
+        		WRITE_BUFFER.flip();
+        		
+        		if (DIRECT_WRITE_BUFFER.remaining() >= WRITE_BUFFER.limit())
                 {
-                    sp = n.getValue();
-                    // put into WriteBuffer
-                    this.putPacketIntoWriteBuffer(con.getClient(), sp);
-
-                    // delete packet from queue
-                    temp = n.getPrevious();
-                    sendQueue.delete(n);
-                    n = temp;
-
-                    WRITE_BUFFER.flip();
-                    //System.err.println("WB SIZE: "+WRITE_BUFFER.limit());
-                    if (DIRECT_WRITE_BUFFER.remaining() >= WRITE_BUFFER.limit())
-                    {
-                        /*if (i == 0)
-                        {
-                            // mark begining of new data from previous pending data
-                            con.setWriterMark(DIRECT_WRITE_BUFFER.position());
-                        }*/
-                        DIRECT_WRITE_BUFFER.put(WRITE_BUFFER);
-                    }
-                    else
-                    {
-                        // there is no more space in the direct buffer
-                        //con.addWriteBuffer(this.getPooledBuffer().put(WRITE_BUFFER));
-                        con.createWriteBuffer(WRITE_BUFFER);
-                        break;
-                    }
+                    DIRECT_WRITE_BUFFER.put(WRITE_BUFFER);
                 }
-            }
+                else
+                {
+                    con.createWriteBuffer(WRITE_BUFFER);
+                    break;
+                }
+        	}
         }
+        
+        return hasPending;
     }
     
-    protected final void putPacketIntoWriteBuffer(T client, SendablePacket<T> sp)
+    private final void putPacketIntoWriteBuffer(final T client, final SendablePacket<T> sp)
     {
         WRITE_BUFFER.clear();
-        
-        // set the write buffer
-        sp.setByteBuffer(WRITE_BUFFER);
 
         // reserve space for the size
-        int headerPos = sp.getByteBuffer().position();
-        int headerSize = sp.getHeaderSize();
-        sp.getByteBuffer().position(headerPos + headerSize);
+        final int headerPos = WRITE_BUFFER.position();
+        final int dataPos = headerPos + HEADER_SIZE;
+        WRITE_BUFFER.position(dataPos);
         
+        // set the write buffer
+        sp._buf = WRITE_BUFFER;
         // write content to buffer
         sp.write();
+        // delete the write buffer
+        sp._buf = null;
         
-        // size (incl header)
-        int dataSize = sp.getByteBuffer().position() - headerPos - headerSize;
-        sp.getByteBuffer().position(headerPos + headerSize);
-        client.encrypt(sp.getByteBuffer(), dataSize);
+        // size (inclusive header)
+        int dataSize = WRITE_BUFFER.position() - dataPos;
+        WRITE_BUFFER.position(dataPos);
+        client.encrypt(WRITE_BUFFER, dataSize);
         
         // recalculate size after encryption
-        dataSize = sp.getByteBuffer().position() - headerPos - headerSize;
+        dataSize = WRITE_BUFFER.position() - dataPos;
         
-        // prepend header
-        //this.prependHeader(headerPos, size);
-        sp.getByteBuffer().position(headerPos);
-        sp.writeHeader(dataSize);
-        sp.getByteBuffer().position(headerPos + headerSize + dataSize);
+        WRITE_BUFFER.position(headerPos);
+        // write header
+        WRITE_BUFFER.putShort((short)(dataSize + HEADER_SIZE));
+        WRITE_BUFFER.position(dataPos + dataSize);
     }
     
-    /*protected void prependHeader(int pos, int size)
+    final void closeConnection(final MMOConnection<T> con)
     {
-        switch (HEADER_TYPE)
+        synchronized (_pendingClose)
         {
-            case BYTE_HEADER:
-                WRITE_BUFFER.put(pos, (byte) size);
-                break;
-            case SHORT_HEADER:
-                WRITE_BUFFER.putShort(pos, (short) size);
-                break;
-            case INT_HEADER:
-                WRITE_BUFFER.putInt(pos, size);
-                break;
-        }
-    }*/
-
-    /*protected int getHeaderValue(ByteBuffer buf)
-    {
-        switch (HEADER_TYPE)
-        {
-            case BYTE_HEADER:
-                return buf.get() & 0xFF;
-            case SHORT_HEADER:
-                return buf.getShort() & 0xFFFF;
-            case INT_HEADER:
-                return buf.getInt();
-        }
-        return -1; // O.o
-    }*/
-
-    protected void setSelector(Selector selector)
-    {
-        _selector = selector;
-    }
-
-    public Selector getSelector()
-    {
-        return _selector;
-    }
-
-    protected void setExecutor(IMMOExecutor<T> executor)
-    {
-        _executor = executor;
-    }
-
-    protected IMMOExecutor<T> getExecutor()
-    {
-        return _executor;
-    }
-
-    public IPacketHandler<T> getPacketHandler()
-    {
-        return _packetHandler;
-    }
-
-    protected void setClientFactory(IClientFactory<T> clientFactory)
-    {
-        _clientFactory = clientFactory;
-    }
-
-    public IClientFactory<T> getClientFactory()
-    {
-        return _clientFactory;
-    }
-
-    public void setAcceptFilter(IAcceptFilter acceptFilter)
-    {
-        _acceptFilter = acceptFilter;
-    }
-    
-    public IAcceptFilter getAcceptFilter()
-    {
-        return _acceptFilter;
-    }
-    
-    public void closeConnection(MMOConnection<T> con)
-    {
-        synchronized (this.getPendingClose())
-        {
-            this.getPendingClose().addLast(con);
+        	_pendingClose.addLast(con);
         }
     }
     
-    protected void closeConnectionImpl(MMOConnection<T> con)
+    private final void closeConnectionImpl(final SelectionKey key, final MMOConnection<T> con)
     {
-        try
+    	try
         {
             // notify connection
-            con.onDisconnection();
+            con.getClient().onDisconnection();
         }
         finally
         {
             try
             {
                 // close socket and the SocketChannel
-                con.getSocket().close();
+                con.close();
             }
             catch (IOException e)
             {
@@ -1202,35 +681,23 @@ public class SelectorThread<T extends MMOClient> extends Thread
             {
                 con.releaseBuffers();
                 // clear attachment
-                con.getSelectionKey().attach(null);
+                key.attach(null);
                 // cancel key
-                con.getSelectionKey().cancel();
+                key.cancel();
             }
         }
     }
     
-    protected FastList<MMOConnection<T>> getPendingClose()
-    {
-        return _pendingClose;
-    }
-    
-    public void shutdown()
+    public final void shutdown()
     {
         _shutdown = true;
     }
 
-    public boolean isShuttingDown()
+    protected void closeSelectorThread() 
     {
-        return _shutdown;
-    }
-
-    protected void closeAllChannels()
-    {
-        Set<SelectionKey> keys = this.getSelector().keys();
-        for (Iterator<SelectionKey> iter = keys.iterator(); iter.hasNext();)
-        {
-            SelectionKey key = iter.next();
-            try
+    	for (final SelectionKey key : _selector.keys())
+    	{
+    		try
             {
                 key.channel().close();
             }
@@ -1238,15 +705,11 @@ public class SelectorThread<T extends MMOClient> extends Thread
             {
                 // ignore
             }
-        }
-    }
-
-    protected void closeSelectorThread() 
-    {
-        this.closeAllChannels();
+    	}
+    	
         try
         {
-            this.getSelector().close();
+        	_selector.close();
         }
         catch (IOException e)
         {

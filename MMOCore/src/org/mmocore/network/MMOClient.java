@@ -25,44 +25,23 @@ import java.nio.ByteBuffer;
  */
 public abstract class MMOClient<T extends MMOConnection>
 {
-    private T _connection;
+    private final T _con;
     
-    @SuppressWarnings("unchecked")
-    public MMOClient(T con)
+    public MMOClient(final T con)
     {
-        this.setConnection(con);
-        con.setClient(this);
-    }
-    
-    protected void setConnection(T con)
-    {
-        _connection = con;
+    	_con = con;
     }
     
     public T getConnection()
     {
-        return _connection;
+        return _con;
     }
     
-    public void closeNow()
-    {
-        this.getConnection().closeNow();
-    }
+    public abstract boolean decrypt(final ByteBuffer buf, final int size);
     
-    public void closeLater()
-    {
-        this.getConnection().closeLater();
-    }
+    public abstract boolean encrypt(final ByteBuffer buf, final int size);
     
-    public abstract boolean decrypt(ByteBuffer buf, int size);
+    protected abstract void onDisconnection();
     
-    public abstract boolean encrypt(ByteBuffer buf, int size);
-    
-    protected void onDisconnection()
-    {
-    }
-    
-    protected void onForcedDisconnection()
-    {
-    }
+    protected abstract void onForcedDisconnection();
 }
