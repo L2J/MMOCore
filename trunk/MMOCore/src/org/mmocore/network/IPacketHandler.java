@@ -19,10 +19,9 @@ package org.mmocore.network;
 
 import java.nio.ByteBuffer;
 
-
 /**
  * @author KenM
- *
+ * 
  */
 public interface IPacketHandler<T extends MMOClient<?>>
 {

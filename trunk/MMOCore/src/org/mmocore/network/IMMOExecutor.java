@@ -17,10 +17,9 @@
  */
 package org.mmocore.network;
 
-
 /**
  * @author KenM
- *
+ * 
  */
 public interface IMMOExecutor<T extends MMOClient<?>>
 {
