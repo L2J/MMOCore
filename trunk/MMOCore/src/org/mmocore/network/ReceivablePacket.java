@@ -17,6 +17,8 @@
  */
 package org.mmocore.network;
 
+import java.nio.ByteBuffer;
+
 /**
  * @author KenM
  * 
@@ -80,5 +82,18 @@ public abstract class ReceivablePacket<T extends MMOClient<?>> extends AbstractP
         }
 
         return _sbuf.toString();
+    }
+    
+    /**
+     * packet forge purpose
+     * @param data
+     * @param client
+     * @param sBuffer
+     */
+    public void setBuffers(ByteBuffer data, T client, NioNetStringBuffer sBuffer)
+    {
+        _buf = data;
+        _client = client;
+        _sbuf = sBuffer;
     }
 }
