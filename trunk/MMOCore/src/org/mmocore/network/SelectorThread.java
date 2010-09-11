@@ -436,9 +436,8 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
     
     private final void writeClosePacket(final MMOConnection<T> con)
     {
-        final SendablePacket<T> sp = con.getClosePacket();
-        
-        if (sp != null)
+        SendablePacket<T> sp;
+        while ((sp = con.getSendQueue().removeFirst()) != null)
         {
             WRITE_BUFFER.clear();
 

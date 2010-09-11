@@ -48,7 +48,7 @@ public final class MMOConnection<T extends MMOClient<?>>
 
     private final SelectionKey _selectionKey;
 
-    private SendablePacket<T> _closePacket;
+    //private SendablePacket<T> _closePacket;
 
     private ByteBuffer _readBuffer;
 
@@ -56,7 +56,7 @@ public final class MMOConnection<T extends MMOClient<?>>
 
     private ByteBuffer _secondaryWriteBuffer;
 
-    private boolean _pendingClose;
+    private volatile boolean _pendingClose;
 
     private T _client;
 
@@ -87,15 +87,15 @@ public final class MMOConnection<T extends MMOClient<?>>
     public final void sendPacket(final SendablePacket<T> sp)
     {
         sp._client = _client;
-
+        
+        if (_pendingClose)
+            return;
+        
         synchronized (getSendQueue())
         {
-            if (!_pendingClose)
-            {
-                _sendQueue.addLast(sp);
-            }
+            _sendQueue.addLast(sp);
         }
-
+        
         if (!_sendQueue.isEmpty())
         {
             try
@@ -208,19 +208,32 @@ public final class MMOConnection<T extends MMOClient<?>>
         return _sendQueue;
     }
 
-    final SendablePacket<T> getClosePacket()
+    /*final SendablePacket<T> getClosePacket()
     {
         return _closePacket;
-    }
+    }*/
 
+    @SuppressWarnings("unchecked")
     public final void close(final SendablePacket<T> sp)
     {
+        
+        close(new SendablePacket[] {sp});
+    }
+    
+    public final void close(final SendablePacket<T>[] closeList)
+    {
+        if (_pendingClose)
+            return;
+        
         synchronized (getSendQueue())
         {
             if (!_pendingClose)
+            {
                 _pendingClose = true;
-
-            _sendQueue.clear();
+                _sendQueue.clear();
+                for (SendablePacket<T> sp : closeList)
+                    _sendQueue.addLast(sp);
+            }
         }
 
         try
@@ -233,7 +246,7 @@ public final class MMOConnection<T extends MMOClient<?>>
             // ignore
         }
 
-        _closePacket = sp;
+        //_closePacket = sp;
         _selectorThread.closeConnection(this);
     }
 
