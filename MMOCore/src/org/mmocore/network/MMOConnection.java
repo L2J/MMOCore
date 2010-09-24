@@ -30,7 +30,7 @@ import java.nio.channels.WritableByteChannel;
  * @author KenM
  * 
  */
-public final class MMOConnection<T extends MMOClient<?>>
+public class MMOConnection<T extends MMOClient<?>>
 {
 	private final SelectorThread<T> _selectorThread;
 	
