@@ -23,7 +23,7 @@ import java.nio.ByteBuffer;
  * @author KenM
  * 
  */
-public abstract class MMOClient<T extends MMOConnection>
+public abstract class MMOClient<T extends MMOConnection<?>>
 {
 	private final T _con;
 	

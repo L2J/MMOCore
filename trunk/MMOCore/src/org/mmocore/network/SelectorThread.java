@@ -437,21 +437,27 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 	private final void writeClosePacket(final MMOConnection<T> con)
 	{
 		SendablePacket<T> sp;
-		while ((sp = con.getSendQueue().removeFirst()) != null)
+		synchronized (con.getSendQueue())
 		{
-			WRITE_BUFFER.clear();
+			if (con.getSendQueue().isEmpty())
+				return;
 			
-			putPacketIntoWriteBuffer(con.getClient(), sp);
-			
-			WRITE_BUFFER.flip();
-			
-			try
+			while ((sp = con.getSendQueue().removeFirst()) != null)
 			{
-				con.write(WRITE_BUFFER);
-			}
-			catch (IOException e)
-			{
-				// error handling goes on the if bellow
+				WRITE_BUFFER.clear();
+				
+				putPacketIntoWriteBuffer(con.getClient(), sp);
+				
+				WRITE_BUFFER.flip();
+				
+				try
+				{
+					con.write(WRITE_BUFFER);
+				}
+				catch (IOException e)
+				{
+					// error handling goes on the if bellow
+				}
 			}
 		}
 	}
