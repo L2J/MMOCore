@@ -1,79 +1,103 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project name="MMOCore" default="dist" basedir=".">
 	<description>
-        MMOCore
-    </description>
-    
-    <property name="src" location="src"/>
-    <property name="lib" location="lib"/>
-    <property name="build" location="build"/>
-    <property name="build.classes" location="${build}/classes"/>
-    <property name="build.dist" location="${build}/dist"/>
-    
-    <path id="classpath">
-        <fileset dir="${lib}">
-            <include name="javolution.jar"/>
-        </fileset>
-    </path>
-    
-    <target name="init"
-    	depends="clean"
-    	description="Create the output directories.">
-        <mkdir dir="${build}"/>
-        <mkdir dir="${build.classes}"/>
-        <mkdir dir="${build.dist}" />
-    </target>
-    
-    <target name="compile"
-            depends="init"
-            description="Compile the source.">
+		This script will build the MMOCore.
 
-        <javac destdir="${build.classes}"
-               optimize="off"
-               debug="on"
-               source="1.5"
-               target="1.5"
-               nowarn="off">
-            <src path="${src}"/>
-            <classpath refid="classpath"/>   
-        </javac>
-    </target>
-    
-    <target name="jar"
-            depends="compile"
-            description="Create the jar file">
+		This program is free software; you can redistribute it and/or modify
+		it under the terms of the GNU General Public License as published by
+		the Free Software Foundation; either version 3, or (at your option)
+		any later version.
 
-        <jar destfile="${build}/mmocore.jar">
-            <fileset dir="${build.classes}"/>
-            <manifest>
-                <attribute name="Main-Class" value="com.l2jserver.mmocore.MMOCore"/>
-                <attribute name="Class-Path" value="javolution.jar"/>
-            </manifest>
-        </jar>
-        
-   		<copy todir="${build.dist}">
-			<fileset dir="${src}/../lib">
-				<include name="*.jar"/>
-			</fileset>
-		</copy>
-		
-		<copy todir="${build.dist}">
-			<fileset dir="${build}">
-				<include name="*.jar"/>
-			</fileset>
-		</copy>
+		This program is distributed in the hope that it will be useful,
+		but WITHOUT ANY WARRANTY; without even the implied warranty of
+		MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+		GNU General Public License for more details.
+
+		You should have received a copy of the GNU General Public License
+		along with this program; if not, write to the Free Software
+		Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+		02111-1307, USA.
+
+		http://www.gnu.org/copyleft/gpl.html
+	</description>
+
+	<property name="src" location="src" />
+	<property name="lib" location="lib" />
+	<property name="build" location="build" />
+	<property name="build.classes" location="${build}/classes" />
+	<property name="build.dist" location="${build}/dist" />
+
+	<path id="classpath">
+		<fileset dir="${lib}">
+			<include name="*.jar" />
+		</fileset>
+	</path>
+
+	<pathconvert property="manifest.libs" pathsep=" ">
+		<path refid="classpath" />
+		<mapper>
+			<chainedmapper>
+				<flattenmapper />
+				<globmapper from="*.jar" to="*.jar" />
+			</chainedmapper>
+		</mapper>
+	</pathconvert>
+
+	<target name="init" depends="clean,checkRequirements,getChangelogDateVersion" description="Create the output directories.">
+		<mkdir dir="${build}" />
+		<mkdir dir="${build.classes}" />
 	</target>
-	
-	<target name="dist"
-		depends="jar"
-		description="Generates a happy zip with the MMOCore">
-        <zip destfile="${build}/mmocore.zip"
-             basedir="${build.dist}" />
-    </target>
-    
-    
-    <target name="clean"
-            description="Remove the output directories">
-        <delete dir="${build}"/>
-    </target>
+
+	<target name="compile" depends="init" description="Compile the source.">
+		<javac destdir="${build.classes}" compiler="javac1.7" debug="true" debuglevel="lines,vars,source" includeantruntime="false" source="1.7" target="1.7">
+			<src path="${src}" />
+			<classpath refid="classpath" />
+		</javac>
+	</target>
+
+	<target name="jar" depends="compile" description="Create the jar file.">
+		<jar destfile="${build.dist}/mmocore.jar">
+			<fileset dir="${build.classes}" />
+			<manifest>
+				<attribute name="Built-By" value="${user.name}" />
+				<attribute name="Built-Date" value="${build.tstamp}" />
+				<attribute name="Class-Path" value="${manifest.libs}" />
+				<attribute name="Implementation-URL" value="http://www.l2jserver.com/" />
+				<attribute name="Implementation-Version" value="${l2j.revision}" />
+				<attribute name="Main-Class" value="com.l2jserver.mmocore.MMOCore" />
+			</manifest>
+		</jar>
+	</target>
+
+	<target name="dist" depends="jar" description="Generates a zip with the MMOCore.">
+		<concat destfile="${build.dist}/MMOCore_CHANGELOG.txt">${l2j.changelog}</concat>
+		<zip destfile="${build}/mmocore.zip" basedir="${build.dist}" />
+	</target>
+
+	<target name="clean" description="Remove the output directories.">
+		<delete dir="${build}" />
+	</target>
+
+	<target name="checkRequirements" description="Check Requirements">
+		<fail message="Ant 1.8.2 is required. But your version is ${ant.version}">
+			<condition>
+				<not>
+					<antversion atleast="1.8.2" />
+				</not>
+			</condition>
+		</fail>
+		<available classname="java.lang.AutoCloseable" property="JDK7.present" />
+		<fail unless="JDK7.present" message="Java 1.7 is required. But your version is Java ${ant.java.version} and probably JDK is not installed." />
+	</target>
+
+	<target name="getChangelogDateVersion" description="Get Changelog, Date, Version">
+		<exec dir="." executable="svn" outputproperty="l2j.changelog">
+			<arg value="log" />
+			<arg value="--stop-on-copy" />
+		</exec>
+		<tstamp>
+			<format property="build.tstamp" pattern="dd/MM/yyyy HH:mm" />
+		</tstamp>
+		<exec dir="." executable="svnversion" outputproperty="l2j.version" />
+	</target>
 </project>
