@@ -63,7 +63,7 @@
 				<attribute name="Built-Date" value="${build.tstamp}" />
 				<attribute name="Class-Path" value="${manifest.libs}" />
 				<attribute name="Implementation-URL" value="http://www.l2jserver.com/" />
-				<attribute name="Implementation-Version" value="${l2j.revision}" />
+				<attribute name="Implementation-Version" value="${l2j.version}" />
 				<attribute name="Main-Class" value="com.l2jserver.mmocore.MMOCore" />
 			</manifest>
 		</jar>
