@@ -54,6 +54,7 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 	private final int MAX_SEND_PER_PASS;
 	private final int MAX_READ_PER_PASS;
 	private final long SLEEP_TIME;
+	public boolean TCP_NODELAY;
 	// Main Buffers
 	private final ByteBuffer DIRECT_WRITE_BUFFER;
 	private final ByteBuffer WRITE_BUFFER;
@@ -75,8 +76,8 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 		HELPER_BUFFER_COUNT = sc.HELPER_BUFFER_COUNT;
 		MAX_SEND_PER_PASS = sc.MAX_SEND_PER_PASS;
 		MAX_READ_PER_PASS = sc.MAX_READ_PER_PASS;
-		
 		SLEEP_TIME = sc.SLEEP_TIME;
+		TCP_NODELAY = sc.TCP_NODELAY;
 		
 		DIRECT_WRITE_BUFFER = ByteBuffer.allocateDirect(sc.WRITE_BUFFER_SIZE).order(BYTE_ORDER);
 		WRITE_BUFFER = ByteBuffer.wrap(new byte[sc.WRITE_BUFFER_SIZE]).order(BYTE_ORDER);
@@ -242,7 +243,7 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 				{
 					sc.configureBlocking(false);
 					SelectionKey clientKey = sc.register(_selector, SelectionKey.OP_READ);
-					con = new MMOConnection<T>(this, sc.socket(), clientKey);
+					con = new MMOConnection<T>(this, sc.socket(), clientKey, TCP_NODELAY);
 					con.setClient(_clientFactory.create(con));
 					clientKey.attach(con);
 				}
