@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project name="MMOCore" default="dist" basedir=".">
+<project name="MMOCore" default="build" basedir=".">
 	<description>
 		This script will build the MMOCore lib.
 
@@ -65,9 +65,12 @@
 		</jar>
 	</target>
 
-	<target name="dist" depends="jar" description="Generates a zip with the MMOCore.">
+	<target name="dist" depends="jar">
 		<concat destfile="${build.dist}/MMOCore_CHANGELOG.txt">${l2j.changelog}</concat>
-		<zip destfile="${build}/mmocore.zip" basedir="${build.dist}" />
+	</target>
+	
+	<target name="build" depends="dist" description="Generates a zip with the MMOCore.">
+		<zip destfile="${build}/mmocore.zip" basedir="${build.dist}" level="9" />
 	</target>
 
 	<target name="clean" description="Remove the output directories.">
