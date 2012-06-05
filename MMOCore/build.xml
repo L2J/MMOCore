@@ -53,7 +53,7 @@
 	</target>
 
 	<target name="jar" depends="compile" description="Create the jar file.">
-		<jar destfile="${build.dist}/mmocore.jar">
+		<jar destfile="${build.dist}/mmocore.jar" level="9">
 			<fileset dir="${build.classes}" />
 			<manifest>
 				<attribute name="Built-By" value="${user.name}" />

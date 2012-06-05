@@ -34,6 +34,7 @@ import javolution.util.FastList;
 /**
  * @author KenM<BR>
  *         Parts of design based on networkcore from WoodenGil
+ * @param <T>
  */
 public final class SelectorThread<T extends MMOClient<?>> extends Thread
 {
@@ -85,8 +86,8 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 		
 		STRING_BUFFER = new NioNetStringBuffer(64 * 1024);
 		
-		_pendingClose = new NioNetStackList<MMOConnection<T>>();
-		_bufferPool = new FastList<ByteBuffer>();
+		_pendingClose = new NioNetStackList<>();
+		_bufferPool = new FastList<>();
 		
 		for (int i = 0; i < HELPER_BUFFER_COUNT; i++)
 		{
@@ -108,9 +109,13 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 		ServerSocket ss = selectable.socket();
 		
 		if (address == null)
+		{
 			ss.bind(new InetSocketAddress(tcpPort));
+		}
 		else
+		{
 			ss.bind(new InetSocketAddress(address, tcpPort));
+		}
 		
 		selectable.register(_selector, SelectionKey.OP_ACCEPT);
 	}
@@ -118,7 +123,9 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 	final ByteBuffer getPooledBuffer()
 	{
 		if (_bufferPool.isEmpty())
+		{
 			return ByteBuffer.wrap(new byte[HELPER_BUFFER_SIZE]).order(BYTE_ORDER);
+		}
 		
 		return _bufferPool.removeFirst();
 	}
@@ -182,7 +189,9 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 						case SelectionKey.OP_READ | SelectionKey.OP_WRITE:
 							writePacket(key, con);
 							if (key.isValid())
+							{
 								readPacket(key, con);
+							}
 							break;
 					}
 				}
@@ -239,16 +248,18 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 		{
 			while ((sc = ssc.accept()) != null)
 			{
-				if (_acceptFilter == null || _acceptFilter.accept(sc))
+				if ((_acceptFilter == null) || _acceptFilter.accept(sc))
 				{
 					sc.configureBlocking(false);
 					SelectionKey clientKey = sc.register(_selector, SelectionKey.OP_READ);
-					con = new MMOConnection<T>(this, sc.socket(), clientKey, TCP_NODELAY);
+					con = new MMOConnection<>(this, sc.socket(), clientKey, TCP_NODELAY);
 					con.setClient(_clientFactory.create(con));
 					clientKey.attach(con);
 				}
 				else
+				{
 					sc.socket().close();
+				}
 			}
 		}
 		catch (IOException e)
@@ -271,7 +282,9 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 			// read 0 bytes
 			// going into infinite loop
 			if (buf.position() == buf.limit())
+			{
 				System.exit(0);
+			}
 			
 			int result = -2;
 			
@@ -293,7 +306,9 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 				for (int i = 0; i < MAX_READ_PER_PASS; i++)
 				{
 					if (!tryReadPacket(key, client, buf, con))
+					{
 						return;
+					}
 				}
 				
 				// only reachable if MAX_READ_PER_PASS has been reached
@@ -303,11 +318,15 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 				{
 					// did we use the READ_BUFFER ?
 					if (buf == READ_BUFFER)
+					{
 						// move the pending byte to the connections READ_BUFFER
 						allocateReadBuffer(con);
+					}
 					else
+					{
 						// move the first byte to the beginning :)
 						buf.compact();
+					}
 				}
 			}
 			else
@@ -341,11 +360,15 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 				
 				// did we use the READ_BUFFER ?
 				if (buf == READ_BUFFER)
+				{
 					// move the pending byte to the connections READ_BUFFER
 					allocateReadBuffer(con);
+				}
 				else
+				{
 					// move the first byte to the beginning :)
 					buf.compact();
+				}
 				return false;
 			default:
 				// data size excluding header size :>
@@ -378,27 +401,25 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 					}
 					return true;
 				}
+				
+				// we don`t have enough bytes for the dataPacket so we need
+				// to read
+				key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+				
+				// did we use the READ_BUFFER ?
+				if (buf == READ_BUFFER)
+				{
+					// move it`s position
+					buf.position(buf.position() - HEADER_SIZE);
+					// move the pending byte to the connections READ_BUFFER
+					allocateReadBuffer(con);
+				}
 				else
 				{
-					// we don`t have enough bytes for the dataPacket so we need
-					// to read
-					key.interestOps(key.interestOps() | SelectionKey.OP_READ);
-					
-					// did we use the READ_BUFFER ?
-					if (buf == READ_BUFFER)
-					{
-						// move it`s position
-						buf.position(buf.position() - HEADER_SIZE);
-						// move the pending byte to the connections READ_BUFFER
-						allocateReadBuffer(con);
-					}
-					else
-					{
-						buf.position(buf.position() - HEADER_SIZE);
-						buf.compact();
-					}
-					return false;
+					buf.position(buf.position() - HEADER_SIZE);
+					buf.compact();
 				}
+				return false;
 		}
 	}
 	
@@ -426,7 +447,9 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 				cp._client = client;
 				
 				if (cp.read())
+				{
 					_executor.execute(cp);
+				}
 				
 				cp._buf = null;
 				cp._sbuf = null;
@@ -441,7 +464,9 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 		synchronized (con.getSendQueue())
 		{
 			if (con.getSendQueue().isEmpty())
+			{
 				return;
+			}
 			
 			while ((sp = con.getSendQueue().removeFirst()) != null)
 			{
@@ -502,8 +527,10 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 				}
 			}
 			else
+			{
 				// incomplete write
 				con.createWriteBuffer(DIRECT_WRITE_BUFFER);
+			}
 		}
 		else
 		{
@@ -524,7 +551,7 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 			hasPending = true;
 		}
 		
-		if (DIRECT_WRITE_BUFFER.remaining() > 1 && !con.hasPendingWriteBuffer())
+		if ((DIRECT_WRITE_BUFFER.remaining() > 1) && !con.hasPendingWriteBuffer())
 		{
 			final NioNetStackList<SendablePacket<T>> sendQueue = con.getSendQueue();
 			final T client = con.getClient();
@@ -535,13 +562,19 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 				synchronized (con.getSendQueue())
 				{
 					if (sendQueue.isEmpty())
+					{
 						sp = null;
+					}
 					else
+					{
 						sp = sendQueue.removeFirst();
+					}
 				}
 				
 				if (sp == null)
+				{
 					break;
+				}
 				
 				hasPending = true;
 				
@@ -551,7 +584,9 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 				WRITE_BUFFER.flip();
 				
 				if (DIRECT_WRITE_BUFFER.remaining() >= WRITE_BUFFER.limit())
+				{
 					DIRECT_WRITE_BUFFER.put(WRITE_BUFFER);
+				}
 				else
 				{
 					con.createWriteBuffer(WRITE_BUFFER);

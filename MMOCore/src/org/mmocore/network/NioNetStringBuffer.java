@@ -28,9 +28,13 @@ public final class NioNetStringBuffer
 	public final void append(final char c)
 	{
 		if (_len < _size)
+		{
 			_buf[_len++] = c;
+		}
 		else
+		{
 			throw new BufferOverflowException();
+		}
 	}
 	
 	@Override
