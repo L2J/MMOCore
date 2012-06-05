@@ -19,7 +19,7 @@ package org.mmocore.network;
 
 /**
  * @author KenM
- * 
+ * @param <T>
  */
 public interface IClientFactory<T extends MMOClient<?>>
 {

@@ -21,7 +21,6 @@ import java.nio.channels.SocketChannel;
 
 /**
  * @author KenM
- * 
  */
 public interface IAcceptFilter
 {

@@ -19,7 +19,7 @@ package org.mmocore.network;
 
 /**
  * @author KenM
- * 
+ * @param <T>
  */
 public abstract class SendablePacket<T extends MMOClient<?>> extends AbstractPacket<T>
 {

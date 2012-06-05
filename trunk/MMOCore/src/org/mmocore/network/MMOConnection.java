@@ -29,7 +29,7 @@ import java.nio.channels.WritableByteChannel;
 
 /**
  * @author KenM
- * 
+ * @param <T>
  */
 public class MMOConnection<T extends MMOClient<?>>
 {
@@ -49,7 +49,7 @@ public class MMOConnection<T extends MMOClient<?>>
 	
 	private final SelectionKey _selectionKey;
 	
-	//private SendablePacket<T> _closePacket;
+	// private SendablePacket<T> _closePacket;
 	
 	private ByteBuffer _readBuffer;
 	
@@ -71,7 +71,7 @@ public class MMOConnection<T extends MMOClient<?>>
 		_port = socket.getPort();
 		_selectionKey = key;
 		
-		_sendQueue = new NioNetStackList<SendablePacket<T>>();
+		_sendQueue = new NioNetStackList<>();
 		
 		try
 		{
@@ -98,7 +98,9 @@ public class MMOConnection<T extends MMOClient<?>>
 		sp._client = _client;
 		
 		if (_pendingClose)
+		{
 			return;
+		}
 		
 		synchronized (getSendQueue())
 		{
@@ -216,22 +218,26 @@ public class MMOConnection<T extends MMOClient<?>>
 		return _sendQueue;
 	}
 	
-	/*final SendablePacket<T> getClosePacket()
-	{
-	    return _closePacket;
-	}*/
-
+	/*
+	 * final SendablePacket<T> getClosePacket() { return _closePacket; }
+	 */
+	
 	@SuppressWarnings("unchecked")
 	public final void close(final SendablePacket<T> sp)
 	{
 		
-		close(new SendablePacket[] { sp });
+		close(new SendablePacket[]
+		{
+			sp
+		});
 	}
 	
 	public final void close(final SendablePacket<T>[] closeList)
 	{
 		if (_pendingClose)
+		{
 			return;
+		}
 		
 		synchronized (getSendQueue())
 		{
@@ -240,7 +246,9 @@ public class MMOConnection<T extends MMOClient<?>>
 				_pendingClose = true;
 				_sendQueue.clear();
 				for (SendablePacket<T> sp : closeList)
+				{
 					_sendQueue.addLast(sp);
+				}
 			}
 		}
 		
@@ -253,7 +261,7 @@ public class MMOConnection<T extends MMOClient<?>>
 			// ignore
 		}
 		
-		//_closePacket = sp;
+		// _closePacket = sp;
 		_selectorThread.closeConnection(this);
 	}
 	
