@@ -90,13 +90,13 @@
 	</target>
 
 	<target name="getChangelogDateVersion" description="Get Changelog, Date, Version">
-		<exec dir="." executable="svn" outputproperty="l2j.changelog">
+		<exec dir="${basedir}" executable="svn" outputproperty="l2j.changelog">
 			<arg value="log" />
 			<arg value="--stop-on-copy" />
 		</exec>
 		<tstamp>
 			<format property="build.tstamp" pattern="dd/MM/yyyy HH:mm" />
 		</tstamp>
-		<exec dir="." executable="svnversion" outputproperty="l2j.version" />
+		<exec dir="${basedir}" executable="svnversion" outputproperty="l2j.version" />
 	</target>
 </project>
