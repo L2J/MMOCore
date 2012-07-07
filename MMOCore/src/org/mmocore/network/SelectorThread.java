@@ -201,9 +201,16 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 			{
 				while (!_pendingClose.isEmpty())
 				{
-					con = _pendingClose.removeFirst();
-					writeClosePacket(con);
-					closeConnectionImpl(con.getSelectionKey(), con);
+					try
+					{
+						con = _pendingClose.removeFirst();
+						writeClosePacket(con);
+						closeConnectionImpl(con.getSelectionKey(), con);
+					}
+					catch (Exception e)
+					{
+						e.printStackTrace();
+					}
 				}
 			}
 			
