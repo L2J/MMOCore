@@ -38,36 +38,71 @@ public abstract class SendablePacket<T extends MMOClient<?>> extends AbstractPac
 		_buf.putFloat(value);
 	}
 	
+	/**
+	 * Write <B>byte</B> to the buffer. <BR>
+	 * 8bit integer (00)
+	 * @param data
+	 */
 	protected final void writeC(final int data)
 	{
 		_buf.put((byte) data);
 	}
 	
+	
+	/**
+	 * Write <B>double</B> to the buffer. <BR>
+	 * 64bit double precision float (00 00 00 00 00 00 00 00)
+	 * @param value
+	 */
 	protected final void writeF(final double value)
 	{
 		_buf.putDouble(value);
 	}
 	
+	/**
+	 * Write <B>short</B> to the buffer. <BR>
+	 * 16bit integer (00 00)
+	 * @param value
+	 */
 	protected final void writeH(final int value)
 	{
 		_buf.putShort((short) value);
 	}
 	
+	/**
+	 * Write <B>int</B> to the buffer. <BR>
+	 * 32bit integer (00 00 00 00)
+	 * @param value
+	 */
 	protected final void writeD(final int value)
 	{
 		_buf.putInt(value);
 	}
 	
+	/**
+	 * Write <B>long</B> to the buffer. <BR>
+	 * 64bit integer (00 00 00 00 00 00 00 00)
+	 * @param value
+	 */
 	protected final void writeQ(final long value)
 	{
 		_buf.putLong(value);
 	}
 	
+	/**
+	 * Write <B>byte[]</B> to the buffer. <BR>
+	 * 8bit integer array (00 ...)
+	 * @param data
+	 */
 	protected final void writeB(final byte[] data)
 	{
 		_buf.put(data);
 	}
 	
+	/**
+	 * Write <B>String</B> to the buffer.
+	 * @param text
+	 */
 	protected final void writeS(final String text)
 	{
 		if (text != null)
