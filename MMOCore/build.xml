@@ -97,6 +97,15 @@
 		<tstamp>
 			<format property="build.tstamp" pattern="dd/MM/yyyy HH:mm" />
 		</tstamp>
-		<exec dir="${basedir}" executable="svnversion" outputproperty="l2j.version" />
+		<exec dir="${basedir}" executable="svnversion" outputproperty="l2j.version">
+			<arg value="-c" />
+			<redirector>
+				<outputfilterchain>
+					<tokenfilter>
+						<replaceregex pattern="[0-9]+\:" replace="" />
+					</tokenfilter>
+				</outputfilterchain>
+			</redirector>
+		</exec>
 	</target>
 </project>
