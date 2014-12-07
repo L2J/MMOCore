@@ -15,7 +15,7 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package org.mmocore.network;
+package com.l2jserver.mmocore.network;
 
 import java.io.IOException;
 import java.net.InetAddress;

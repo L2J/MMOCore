@@ -15,14 +15,15 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package org.mmocore.network;
+package com.l2jserver.mmocore.network;
 
-import java.nio.channels.SocketChannel;
+import java.nio.ByteBuffer;
 
 /**
  * @author KenM
+ * @param <T>
  */
-public interface IAcceptFilter
+public interface IPacketHandler<T extends MMOClient<?>>
 {
-	public boolean accept(SocketChannel sc);
+	public ReceivablePacket<T> handlePacket(ByteBuffer buf, T client);
 }

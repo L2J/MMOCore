@@ -15,13 +15,13 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package org.mmocore.network;
+package com.l2jserver.mmocore.network;
 
 /**
  * @author KenM
  * @param <T>
  */
-public interface IMMOExecutor<T extends MMOClient<?>>
+public interface IClientFactory<T extends MMOClient<?>>
 {
-	public void execute(ReceivablePacket<T> packet);
+	public T create(final MMOConnection<T> con);
 }

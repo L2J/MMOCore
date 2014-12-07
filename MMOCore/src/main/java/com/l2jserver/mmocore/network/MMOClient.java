@@ -15,13 +15,33 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package org.mmocore.network;
+package com.l2jserver.mmocore.network;
+
+import java.nio.ByteBuffer;
 
 /**
  * @author KenM
  * @param <T>
  */
-public interface IClientFactory<T extends MMOClient<?>>
+public abstract class MMOClient<T extends MMOConnection<?>>
 {
-	public T create(final MMOConnection<T> con);
+	private final T _con;
+	
+	public MMOClient(final T con)
+	{
+		_con = con;
+	}
+	
+	public T getConnection()
+	{
+		return _con;
+	}
+	
+	public abstract boolean decrypt(final ByteBuffer buf, final int size);
+	
+	public abstract boolean encrypt(final ByteBuffer buf, final int size);
+	
+	protected abstract void onDisconnection();
+	
+	protected abstract void onForcedDisconnection();
 }
