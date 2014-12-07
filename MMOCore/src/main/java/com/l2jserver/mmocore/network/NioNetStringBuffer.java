@@ -1,4 +1,4 @@
-package org.mmocore.network;
+package com.l2jserver.mmocore.network;
 
 import java.nio.BufferOverflowException;
 
