@@ -15,7 +15,7 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package org.mmocore.network;
+package com.l2jserver.mmocore;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -28,13 +28,13 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
-
-import javolution.util.FastList;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * @author KenM<BR>
- *         Parts of design based on networkcore from WoodenGil
+ * Parts of design based on network core from WoodenGil
  * @param <T>
+ * @author KenM, Zoey76
  */
 public final class SelectorThread<T extends MMOClient<?>> extends Thread
 {
@@ -63,7 +63,7 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 	// String Buffer
 	private final NioNetStringBuffer STRING_BUFFER;
 	// ByteBuffers General Purpose Pool
-	private final FastList<ByteBuffer> _bufferPool;
+	private final Queue<ByteBuffer> _bufferPool;
 	// Pending Close
 	private final NioNetStackList<MMOConnection<T>> _pendingClose;
 	
@@ -87,11 +87,11 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 		STRING_BUFFER = new NioNetStringBuffer(64 * 1024);
 		
 		_pendingClose = new NioNetStackList<>();
-		_bufferPool = new FastList<>();
+		_bufferPool = new ConcurrentLinkedQueue<>();
 		
 		for (int i = 0; i < HELPER_BUFFER_COUNT; i++)
 		{
-			_bufferPool.addLast(ByteBuffer.wrap(new byte[HELPER_BUFFER_SIZE]).order(BYTE_ORDER));
+			_bufferPool.add(ByteBuffer.wrap(new byte[HELPER_BUFFER_SIZE]).order(BYTE_ORDER));
 		}
 		
 		_acceptFilter = acceptFilter;
@@ -127,15 +127,15 @@ public final class SelectorThread<T extends MMOClient<?>> extends Thread
 			return ByteBuffer.wrap(new byte[HELPER_BUFFER_SIZE]).order(BYTE_ORDER);
 		}
 		
-		return _bufferPool.removeFirst();
+		return _bufferPool.remove();
 	}
 	
-	final void recycleBuffer(final ByteBuffer buf)
+	final void recycleBuffer(ByteBuffer buf)
 	{
 		if (_bufferPool.size() < HELPER_BUFFER_COUNT)
 		{
 			buf.clear();
-			_bufferPool.addLast(buf);
+			_bufferPool.add(buf);
 		}
 	}
 	

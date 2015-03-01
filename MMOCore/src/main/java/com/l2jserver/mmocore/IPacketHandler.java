@@ -15,7 +15,7 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package org.mmocore.network;
+package com.l2jserver.mmocore;
 
 import java.nio.ByteBuffer;
 
@@ -23,14 +23,7 @@ import java.nio.ByteBuffer;
  * @author KenM
  * @param <T>
  */
-public abstract class AbstractPacket<T extends MMOClient<?>>
+public interface IPacketHandler<T extends MMOClient<?>>
 {
-	protected ByteBuffer _buf;
-	
-	protected T _client;
-	
-	public final T getClient()
-	{
-		return _client;
-	}
+	public ReceivablePacket<T> handlePacket(ByteBuffer buf, T client);
 }

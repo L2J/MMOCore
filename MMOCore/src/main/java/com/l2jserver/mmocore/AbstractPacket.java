@@ -15,13 +15,22 @@
  *
  * http://www.gnu.org/copyleft/gpl.html
  */
-package org.mmocore.network;
+package com.l2jserver.mmocore;
+
+import java.nio.ByteBuffer;
 
 /**
  * @author KenM
  * @param <T>
  */
-public interface IMMOExecutor<T extends MMOClient<?>>
+public abstract class AbstractPacket<T extends MMOClient<?>>
 {
-	public void execute(ReceivablePacket<T> packet);
+	protected ByteBuffer _buf;
+	
+	protected T _client;
+	
+	public final T getClient()
+	{
+		return _client;
+	}
 }
